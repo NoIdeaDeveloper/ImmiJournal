@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import logging
 import os
 
@@ -46,11 +47,21 @@ DATABASE_PATH: str = os.environ.get("DATABASE_PATH", "/data/immijournal.db")
 APP_PASSWORD: str | None = _raw_password
 SECURE_COOKIES: bool = os.environ.get("SECURE_COOKIES", "false").lower() == "true"
 
+_PBKDF2_ITERATIONS = 600_000
+_PBKDF2_SALT = b"immijournal-v1"  # fixed salt; security comes from PBKDF2 iteration count
+
+
 def hash_password(password: str) -> str:
-    """Return the SHA-256 hex digest of a plaintext password."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Return a PBKDF2-HMAC-SHA256 hex digest of the plaintext password."""
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), _PBKDF2_SALT, _PBKDF2_ITERATIONS
+    ).hex()
 
 
-# Store a SHA-256 hash of the password in memory so raw string comparisons
-# are avoided at login time and the plaintext isn't retained beyond startup.
+def verify_password(password: str, hashed: str) -> bool:
+    """Constant-time comparison of a plaintext password against a stored hash."""
+    return hmac.compare_digest(hash_password(password), hashed)
+
+
+# Hash the password at startup so the plaintext isn't retained beyond config load.
 APP_PASSWORD_HASH: str | None = hash_password(_raw_password) if _raw_password else None

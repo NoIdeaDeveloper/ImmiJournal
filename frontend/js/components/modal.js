@@ -215,7 +215,7 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
     document.getElementById("modal-save").addEventListener("click", async () => {
         const title = document.getElementById("modal-entry-title").value.trim();
         const tags = document.getElementById("modal-entry-tags").value.trim();
-        const summary = document.getElementById("modal-entry-summary").value.trim();
+        const summary = document.getElementById("modal-entry-summary")?.value.trim() ?? "";
         const body = document.getElementById("modal-entry-body").value.trim();
         const dateInput = document.getElementById("modal-entry-date").value;
 

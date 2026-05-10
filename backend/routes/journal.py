@@ -28,18 +28,24 @@ async def _sync_tags(db, entry_id: int, tags_str: str) -> None:
     if not tags_str:
         return
     tag_names = [t.strip() for t in tags_str.split(",") if t.strip()]
-    for name in tag_names:
-        # Single atomic upsert: always returns the id whether inserted or already existing
-        cursor = await db.execute(
-            "INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id",
-            (name,),
-        )
-        tag_row = await cursor.fetchone()
-        if tag_row:
-            await db.execute(
-                "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)",
-                (entry_id, tag_row["id"]),
-            )
+    if not tag_names:
+        return
+
+    # Batch upsert: one INSERT for all tags, then one SELECT to get their IDs
+    placeholders = _sql_placeholders(tag_names)
+    await db.executemany(
+        "INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO NOTHING",
+        [(name,) for name in tag_names],
+    )
+    cursor = await db.execute(
+        f"SELECT id FROM tags WHERE name IN ({placeholders})",
+        tag_names,
+    )
+    tag_rows = await cursor.fetchall()
+    await db.executemany(
+        "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)",
+        [(entry_id, row["id"]) for row in tag_rows],
+    )
 
 
 async def _get_current_asset_ids(db, entry_id: int) -> list[str]:

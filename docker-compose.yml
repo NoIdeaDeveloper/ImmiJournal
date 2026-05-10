@@ -13,6 +13,12 @@ services:
       - PGID=${PGID:-100}
     volumes:
       - /mnt/user/appdata/immijournal:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     logging:
       driver: "json-file"

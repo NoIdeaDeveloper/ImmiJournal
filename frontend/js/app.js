@@ -1,7 +1,3 @@
-import { renderFeed } from "./views/feed.js";
-import { renderBrowse } from "./views/browse.js";
-import { renderEntry } from "./views/entry.js";
-import { renderSettings } from "./views/settings.js";
 import { getSettings } from "./api.js";
 
 const contentEl = document.getElementById("app-content");
@@ -30,31 +26,27 @@ function route() {
     contentEl.offsetHeight; // force reflow
     contentEl.style.animation = "fadeIn 0.2s ease";
 
+    const _viewError = (name, err) => {
+        console.error(`Failed to load ${name} module:`, err);
+        contentEl.innerHTML = `<div class="error-state"><p>Failed to load ${name} page.</p></div>`;
+    };
+
     if (parts[0] === "" || parts[0] === undefined) {
         document.title = "Journal — ImmiJournal";
-        renderFeed(contentEl);
+        import("./views/feed.js").then((m) => m.renderFeed(contentEl)).catch((e) => _viewError("journal", e));
     } else if (parts[0] === "browse") {
         document.title = "Browse Photos — ImmiJournal";
-        renderBrowse(contentEl);
+        import("./views/browse.js").then((m) => m.renderBrowse(contentEl)).catch((e) => _viewError("browse", e));
     } else if (parts[0] === "entry" && parts[1]) {
         document.title = "Entry — ImmiJournal";
-        renderEntry(contentEl, parseInt(parts[1], 10), _prevHash);
+        const entryId = parseInt(parts[1], 10);
+        import("./views/entry.js").then((m) => m.renderEntry(contentEl, entryId, _prevHash)).catch((e) => _viewError("entry", e));
     } else if (parts[0] === "settings") {
         document.title = "Settings — ImmiJournal";
-        renderSettings(contentEl);
+        import("./views/settings.js").then((m) => m.renderSettings(contentEl)).catch((e) => _viewError("settings", e));
     } else if (parts[0] === "stats") {
         document.title = "Statistics — ImmiJournal";
-        // Import dynamically to avoid loading chart library unnecessarily
-        import("./views/stats.js").then((module) => {
-            module.renderStats(contentEl);
-        }).catch((error) => {
-            console.error("Failed to load stats module:", error);
-            contentEl.innerHTML = `
-                <div class="error-state">
-                    <p>Failed to load statistics page.</p>
-                </div>
-            `;
-        });
+        import("./views/stats.js").then((m) => m.renderStats(contentEl)).catch((e) => _viewError("statistics", e));
     }
 
     // Update active nav link — entry detail is part of the Journal section
@@ -150,8 +142,14 @@ function _toggleShortcutHelp() {
             <button class="btn btn-secondary" style="margin-top:16px" id="shortcut-close">Close</button>
         </div>
     `;
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
-    document.getElementById("shortcut-close")?.addEventListener("click", () => overlay.remove());
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") overlay.remove(); }, { once: true });
+    function _closeHelp() {
+        overlay.remove();
+        document.removeEventListener("keydown", _escHelp);
+    }
+    function _escHelp(e) { if (e.key === "Escape") _closeHelp(); }
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) _closeHelp(); });
+    document.getElementById("shortcut-close")?.addEventListener("click", _closeHelp);
+    document.addEventListener("keydown", _escHelp);
     document.body.appendChild(overlay);
 }

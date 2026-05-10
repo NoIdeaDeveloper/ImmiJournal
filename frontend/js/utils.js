@@ -46,10 +46,13 @@ export function renderMarkdown(md) {
         .replace(/^\d+\. (.+)$/gm, "<oli>$1</oli>")
         // Unordered lists
         .replace(/^\s*[-*] (.+)$/gm, "<li>$1</li>")
-        // Wrap consecutive <oli> in <ol>
-        .replace(/(<oli>.*<\/oli>\n?)+/g, (match) => `<ol>${match.replace(/<\/?oli>/g, (m) => m.replace("oli", "li"))}</ol>`)
+        // Wrap consecutive <oli> in <ol> (keep <oli> tags so the <ul> step below
+        // doesn't also wrap them as unordered-list items)
+        .replace(/(<oli>.*<\/oli>\n?)+/g, (match) => `<ol>${match}</ol>`)
         // Wrap consecutive <li> in <ul>
-        .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+        .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+        // Now convert the placeholder <oli>/<oli> tags to real <li>/<li>
+        .replace(/<\/?oli>/g, (m) => m.replace("oli", "li"));
 
     // Paragraphs: split on blank lines, wrap non-block elements
     const blockTags = /^<(h[1-6]|pre|ul|hr|blockquote)/;

@@ -1,0 +1,219 @@
+==============================================================================
+ ImmiJournal - Performance & Architecture Improvement Suggestions
+ Generated: 2026-05-09
+==============================================================================
+
+1. DATABASE OPTIMIZATIONS
+----------------------------------------------------------------------------
+
+1.1 Batch Tag Upserts (backend/routes/journal.py:33)
+    Problem: `_sync_tags()` issues one INSERT per tag. For entries with many
+    tags, this means N round-trips to SQLite.
+    Suggestion: Use a single batched INSERT with `ON CONFLICT DO NOTHING`
+    followed by a single SELECT to retrieve all IDs. Example pattern:
+
+        INSERT INTO tags (name) VALUES (?), (?), (?)
+        ON CONFLICT (name) DO NOTHING;
+        SELECT id, name FROM tags WHERE name IN (?, ?, ?);
+
+1.2 Stats GROUP BY Optimization (backend/routes/settings.py stats endpoint)
+    Problem: `GROUP BY substr(created_at, 1, 7)` and `GROUP BY substr(created_at, 1, 10)`
+    cannot use the `idx_entries_created_at` index since SQLite can't use
+    indexes on expression-based groupings. With thousands of entries, this
+    does a full table scan.
+    Suggestion: Add computed columns `month_key TEXT GENERATED ALWAYS AS
+    (substr(created_at, 1, 7))` and `day_key TEXT GENERATED ALWAYS AS
+    (substr(created_at, 1, 10))`, then create indexes on those columns.
+    Alternatively, create a materialized view/aggregate table updated on each
+    entry insert that precomputes monthly/daily counts.
+
+1.3 Linked Asset IDs Endpoint (backend/routes/journal.py `get_linked_asset_ids`)
+    Problem: Returns ALL linked asset IDs without pagination. As the journal
+    grows, this response payload grows unbounded.
+    Suggestion: Accept an optional asset ID list from the frontend for bulk
+    checking instead, or add pagination with `limit`/`offset` parameters.
+
+1.4 Password Hashing (backend/auth.py)
+    Problem: SHA-256 is used for password hashing. While this is a
+    single-user local app, SHA-256 is fast and vulnerable to brute force.
+    Suggestion: Upgrade to bcrypt (via `passlib` or `bcrypt` library) or
+    Python's built-in `hashlib.pbkdf2_hmac`. This is a one-line change that
+    significantly improves credential security.
+
+2. IMAGE PROXY / CACHE OPTIMIZATIONS
+----------------------------------------------------------------------------
+
+2.1 Disk Cache Size Calculation (backend/routes/immich_proxy.py
+    `get_cache_size_mb()`)
+    Problem: On every health check with `full=true`, and on hourly cleanup,
+    all cache files are iterated to compute total size. With thousands of
+    cached images, this is O(n) and can block.
+    Suggestion: Maintain a running total of cache size in memory (increment
+    on file write, decrement on eviction) instead of re-scanning the
+    directory each time. Use an in-memory dict to track file sizes per path.
+
+2.2 Cache Eviction Strategy
+    Problem: Cache cleanup on app startup deletes non-sidecar files older
+    than 24 hours with a full directory scan. The hourly cleanup does the
+    same.
+    Suggestion: Instead of scanning the entire cache directory each hour,
+    maintain a sorted structure (e.g., a heap or sorted list) of
+    (access_time, path, size) in memory. Only evict when approaching the
+    500MB limit, removing oldest-first.
+
+2.3 Image Proxy Content-Type Detection
+    Problem: `imghdr.what()` and `puremagic` are called on every proxy
+    response to detect image type, but Immich already returns
+    `Content-Type` headers.
+    Suggestion: Trust Immich's Content-Type header first; only fall back to
+    magic byte detection if the header is missing or `application/octet-stream`.
+
+3. BACKEND API OPTIMIZATIONS
+----------------------------------------------------------------------------
+
+3.1 Response Caching Headers
+    Problem: All `/api/*` responses get `Cache-Control: no-store` via
+    middleware (backend/main.py CACHING_RULES), even for endpoints like
+    `/api/stats` and `/api/journal/linked-asset-ids` that change rarely.
+    Suggestion: Allow specific endpoints to override the no-store policy.
+    `/api/stats` could use `Cache-Control: public, max-age=300` (matching
+    the 5-minute server cache). `/api/journal/linked-asset-ids` could use
+    short-term caching with revalidation.
+
+3.2 Search Performance (backend/routes/journal.py FTS5 search)
+    Problem: FTS5 search on `journal_entries_fts` triggers a join back to
+    `journal_entries` in the same query. Both tables are scanned.
+    Suggestion: Verify the FTS5 content table is external content (not a
+    copy) so the FTS index doesn't duplicate text. Consider adding an
+    `ORDER BY rank` clause for relevance sorting (requires bm25 or rank).
+
+3.3 Entry Export
+    Problem: `export_entries()` builds a full JSON response with all entry
+    text and asset IDs in memory. For large journals this could be expensive.
+    Suggestion: Stream the export as a download using `StreamingResponse`,
+    or add a `limit`/`offset` parameter.
+
+4. FRONTEND OPTIMIZATIONS
+----------------------------------------------------------------------------
+
+4.1 JavaScript Minification
+    Problem: All JS files (~12 modules) are served unminified. While impact
+    is minimal on LAN, it adds unnecessary bytes.
+    Suggestion: Add a lightweight build step using `esbuild` or `terser` to
+    minify JS and CSS. This can be a Dockerfile build stage that doesn't
+    require npm in production.
+
+4.2 CSS Minification
+    Problem: `frontend/css/style.css` is ~1990 lines served unminified.
+    Suggestion: Same as above - run through a CSS minifier in a build step.
+
+4.3 Lazy-Loaded View Modules
+    Problem: All view modules (feed.js, browse.js, entry.js, stats.js,
+    settings.js) are imported eagerly in app.js, so all code loads upfront.
+    Suggestion: Use dynamic `import()` to load view modules only when the
+    user navigates to that tab. Since ES modules are already used, this is
+    straightforward:
+
+        case 'journal': {
+            const { render } = await import('./views/feed.js');
+            render();
+            break;
+        }
+
+4.4 Virtual Scrolling for Large Lists
+    Problem: In feed.js, infinite scroll appends all loaded cards to the DOM
+    without removing off-screen elements. With hundreds of entries, DOM
+    nodes accumulate and degrade scroll performance.
+    Suggestion: Implement a simple recycling pattern - remove renderings
+    for cards scrolled far off-screen (e.g., beyond 3000px viewport
+    margin), or cap the feed at a visible window + buffer.
+
+4.5 Date Formatting Cache (frontend/js/components/photoGrid.js)
+    Problem: `_dateCache` memoizes date formatting, which is good, but it
+    uses a plain object with no eviction policy. Over many sessions/dates,
+    it grows indefinitely.
+    Suggestion: Use an LRU cache with a reasonable max size (e.g., 500
+    entries) or clear the cache when navigating away from the browse view.
+
+4.6 Confetti Animation (frontend/js/confetti.js)
+    Problem: The confetti animation runs a requestAnimationFrame loop
+    that draws ~120 particles to a canvas. After animation ends, the canvas
+    is removed but the rAF loop may still run for a frame on 0 opacity.
+    Suggestion: Add a `cancelAnimationFrame` call on completion to ensure
+    the loop stops cleanly. Current code sets `opacity=0` but continues
+    drawing for the remaining duration.
+
+4.7 Immich Config Cache (frontend/js/api.js)
+    Problem: `_immichConfigCache` is fetched once and never invalidated.
+    If the Immich instance URL changes, stale data persists until page reload.
+    Suggestion: Add a TTL or expose an invalidation mechanism tied to
+    settings updates.
+
+5. INFRASTRUCTURE / DEPLOYMENT
+----------------------------------------------------------------------------
+
+5.1 Google Fonts External Dependency
+    Problem: `index.html` loads Lora font from Google Fonts CDN with a
+    `preconnect`. If the CDN is unreachable or slow, it blocks text
+    rendering (even with `font-display: swap`, there's a FOIT flash).
+    Suggestion: Self-host the Lora font files (WOFF2) in the frontend/assets
+    directory. This removes the external network dependency entirely.
+
+5.2 No Reverse Proxy Layer
+    Problem: FastAPI serves static files directly. For production behind
+    a reverse proxy (traefik/nginx), static files could be served from the
+    proxy and API calls passed through.
+    Suggestion: Document a reverse proxy configuration that serves static
+    files from the proxy cache, bypassing the Python process entirely.
+
+5.3 Docker Healthcheck
+    Problem: The Docker Compose file has no `healthcheck` defined. Docker
+    has no way to know if the container is healthy without one.
+    Suggestion: Add a Docker healthcheck using `/api/health`:
+
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+          interval: 30s
+          timeout: 5s
+          retries: 3
+          start_period: 10s
+
+6. TESTING
+----------------------------------------------------------------------------
+
+6.1 No Frontend Tests
+    Problem: Zero automated frontend tests exist. All testing is backend-only.
+    Suggestion: Add at minimum:
+      - Unit tests for API fetch wrappers (api.js) with a mock fetch
+      - Integration tests for entry creation flow using Playwright or
+        Puppeteer targeting the Docker Compose environment
+      - Snapshot tests for rendered HTML in entry cards/photos
+
+6.2 Single Database Test Fixture
+    Problem: All tests share the same in-memory SQLite database via a
+    session-scoped fixture. Test ordering matters (e.g., conftest.py line 48
+    truncates entries in setup but relies on session state).
+    Suggestion: Use function-scoped fixtures to reset the database between
+    tests, or explicitly reset the database before each test to avoid test
+    coupling.
+
+==============================================================================
+ PRIORITY SUMMARY
+==============================================================================
+
+| Priority | Item                                       | Effort | Impact  |
+|----------|--------------------------------------------|--------|---------|
+| High     | Password hashing upgrade (SHA-256→bcrypt)  | Small  | Medium  |
+| High     | Docker healthcheck                         | Small  | Medium  |
+| Medium   | Batch tag upserts                          | Small  | Low     |
+| Medium   | Stats GROUP BY optimization                | Medium | Medium  |
+| Medium   | Disk cache size tracking (O(1) vs O(n))    | Small  | Medium  |
+| Medium   | Frontend lazy-loaded views                 | Medium | Medium  |
+| Medium   | Virtual scrolling / DOM recycling          | Large  | Medium  |
+| Low      | JS/CSS minification build step             | Medium | Low     |
+| Low      | Google Fonts self-hosting                  | Small  | Low     |
+| Low      | Linked asset IDs pagination                | Small  | Low     |
+| Low      | API caching header overrides               | Small  | Low     |
+| Low      | Frontend automated tests                   | Large  | Medium  |
+
+==============================================================================

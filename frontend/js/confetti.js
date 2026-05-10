@@ -34,6 +34,7 @@ export function launchConfetti() {
     }));
 
     let frame = 0;
+    let rafId;
     const MAX_FRAMES = 180; // ~3 seconds at 60fps
 
     function draw() {
@@ -65,11 +66,12 @@ export function launchConfetti() {
 
         frame++;
         if (frame < MAX_FRAMES) {
-            requestAnimationFrame(draw);
+            rafId = requestAnimationFrame(draw);
         } else {
+            cancelAnimationFrame(rafId);
             canvas.remove();
         }
     }
 
-    requestAnimationFrame(draw);
+    rafId = requestAnimationFrame(draw);
 }

@@ -4,7 +4,7 @@ import secrets
 import time
 from fastapi import Request, HTTPException
 
-from backend.config import APP_PASSWORD, APP_PASSWORD_HASH
+from backend.config import APP_PASSWORD, APP_PASSWORD_HASH, verify_password
 from backend.database import get_db
 
 SESSION_COOKIE = "immijournal_session"
@@ -24,7 +24,8 @@ async def invalidate_sessions_if_password_changed() -> None:
     cursor = await db.execute("SELECT value FROM settings WHERE key = 'password_hash'")
     row = await cursor.fetchone()
     stored_hash = row["value"] if row else None
-    if stored_hash != APP_PASSWORD_HASH:
+    password_unchanged = stored_hash and APP_PASSWORD and verify_password(APP_PASSWORD, stored_hash)
+    if not password_unchanged:
         await db.execute("DELETE FROM sessions")
         await db.execute(
             "INSERT INTO settings (key, value) VALUES ('password_hash', ?) "

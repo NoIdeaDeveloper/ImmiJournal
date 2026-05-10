@@ -25,7 +25,9 @@ Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
 # Lock to prevent concurrent cache cleanup runs
 _cache_cleanup_lock = asyncio.Lock()
 
-# Module-level cache size tracker (updated by cleanup; exposed to health endpoint)
+# In-memory size tracking: {path_str: size_bytes}. Updated on every write/eviction
+# so get_cache_size_mb() is O(1) without needing a directory scan.
+_cache_file_sizes: dict[str, int] = {}
 _cache_size_mb: float = 0.0
 
 
@@ -48,8 +50,21 @@ async def schedule_cache_cleanup():
 
 
 def get_cache_size_mb() -> float:
-    """Return the last-measured cache size in MB (updated by cleanup)."""
+    """Return the current cache size in MB (O(1), maintained by write/eviction tracking)."""
     return _cache_size_mb
+
+
+def _track_cache_write(path: Path, size: int) -> None:
+    global _cache_size_mb
+    old = _cache_file_sizes.get(str(path), 0)
+    _cache_file_sizes[str(path)] = size
+    _cache_size_mb += (size - old) / (1024 * 1024)
+
+
+def _track_cache_delete(path: Path) -> None:
+    global _cache_size_mb
+    removed = _cache_file_sizes.pop(str(path), 0)
+    _cache_size_mb = max(0.0, _cache_size_mb - removed / (1024 * 1024))
 
 
 def get_cache_path(asset_id: str, variant: str) -> Path:
@@ -63,36 +78,37 @@ def cleanup_cache_if_needed():
     """Remove oldest cache files if the cache directory exceeds the size limit."""
     global _cache_size_mb
     try:
+        # Full scan to reconcile in-memory tracker with disk (handles external changes)
         total_size = 0
         cache_files = []
+        _cache_file_sizes.clear()
 
         for file in Path(CACHE_DIR).iterdir():
             try:
                 stat = file.stat()
                 total_size += stat.st_size
                 cache_files.append((file, stat.st_mtime, stat.st_size))
+                _cache_file_sizes[str(file)] = stat.st_size
             except Exception as e:
                 logger.warning(f"Failed to stat cache file {file}: {e}")
                 continue
 
-        total_size_mb = total_size / (1024 * 1024)
-        _cache_size_mb = total_size_mb
+        _cache_size_mb = total_size / (1024 * 1024)
 
-        if total_size_mb > CACHE_SIZE_LIMIT_MB:
-            logger.warning(f"Cache size {total_size_mb:.1f}MB exceeds limit, cleaning up")
+        if _cache_size_mb > CACHE_SIZE_LIMIT_MB:
+            logger.warning(f"Cache size {_cache_size_mb:.1f}MB exceeds limit, cleaning up")
             cache_files.sort(key=lambda x: x[1])  # oldest first
 
             for file, _, file_size in cache_files:
                 try:
                     file.unlink()
-                    total_size -= file_size
-                    if total_size / (1024 * 1024) <= CACHE_SIZE_LIMIT_MB * 0.9:
+                    _track_cache_delete(file)
+                    if _cache_size_mb <= CACHE_SIZE_LIMIT_MB * 0.9:
                         break
                 except Exception as e:
                     logger.warning(f"Failed to delete cache file {file}: {e}")
                     continue
 
-            _cache_size_mb = total_size / (1024 * 1024)
             logger.info(f"Cache cleaned. New size: {_cache_size_mb:.1f}MB")
 
     except Exception as e:
@@ -133,6 +149,8 @@ async def get_cached_image(asset_id: str, variant: str, fetcher) -> tuple[bytes,
     try:
         cache_path.write_bytes(image_bytes)
         ct_path.write_text(content_type)
+        _track_cache_write(cache_path, len(image_bytes))
+        _track_cache_write(ct_path, len(content_type.encode()))
     except Exception as e:
         logger.warning(f"Failed to write cache for {asset_id}/{variant}: {e}")
 
