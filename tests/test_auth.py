@@ -5,7 +5,7 @@ async def test_login_success(client):
     resp = await client.post("/api/auth/login", json={"password": "test-password"})
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    assert "tf_session" in resp.cookies
+    assert "immijournal_session" in resp.cookies
 
 
 async def test_login_wrong_password(client):
@@ -62,6 +62,6 @@ async def test_expired_session_rejected(client, db):
     )
     await db.commit()
 
-    client.cookies.set("tf_session", expired_token)
+    client.cookies.set("immijournal_session", expired_token)
     resp = await client.get("/api/journal/entries")
     assert resp.status_code == 401

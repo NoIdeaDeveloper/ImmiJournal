@@ -20,11 +20,19 @@ from httpx import AsyncClient, ASGITransport  # noqa: E402
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def clear_rate_limits():
+def clear_state():
     import backend.routes.auth as routes_auth
+    import backend.main as main_module
+    import backend.routes.settings as settings_module
     routes_auth._failed_attempts.clear()
+    main_module._write_rate.clear()
+    main_module._health_cache.clear()
+    settings_module._stats_cache.clear()
     yield
     routes_auth._failed_attempts.clear()
+    main_module._write_rate.clear()
+    main_module._health_cache.clear()
+    settings_module._stats_cache.clear()
 
 
 # ---------------------------------------------------------------------------
