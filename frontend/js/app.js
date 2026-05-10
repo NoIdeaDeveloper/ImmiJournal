@@ -18,6 +18,8 @@ getSettings().then((settings) => {
     if (settings.theme) applyTheme(settings.theme);
 }).catch(() => {});
 
+let _prevHash = "#/";
+
 function route() {
     const hash = window.location.hash || "#/";
     const [path, query] = hash.slice(2).split("?", 2);
@@ -29,14 +31,19 @@ function route() {
     contentEl.style.animation = "fadeIn 0.2s ease";
 
     if (parts[0] === "" || parts[0] === undefined) {
+        document.title = "Journal — ImmiJournal";
         renderFeed(contentEl);
     } else if (parts[0] === "browse") {
+        document.title = "Browse Photos — ImmiJournal";
         renderBrowse(contentEl);
     } else if (parts[0] === "entry" && parts[1]) {
-        renderEntry(contentEl, parseInt(parts[1], 10));
+        document.title = "Entry — ImmiJournal";
+        renderEntry(contentEl, parseInt(parts[1], 10), _prevHash);
     } else if (parts[0] === "settings") {
+        document.title = "Settings — ImmiJournal";
         renderSettings(contentEl);
     } else if (parts[0] === "stats") {
+        document.title = "Statistics — ImmiJournal";
         // Import dynamically to avoid loading chart library unnecessarily
         import("./views/stats.js").then((module) => {
             module.renderStats(contentEl);
@@ -50,11 +57,11 @@ function route() {
         });
     }
 
-    // Update active nav link
+    // Update active nav link — entry detail is part of the Journal section
     document.querySelectorAll(".nav-link").forEach((link) => {
         const view = link.dataset.view;
         const isActive =
-            (view === "feed" && (hash === "#/" || hash === "#")) ||
+            (view === "feed" && (hash === "#/" || hash === "#" || hash.startsWith("#/entry"))) ||
             (view === "browse" && hash.startsWith("#/browse")) ||
             (view === "settings" && hash.startsWith("#/settings")) ||
             (view === "stats" && hash.startsWith("#/stats"));
@@ -62,7 +69,11 @@ function route() {
     });
 }
 
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", (e) => {
+    const prev = new URL(e.oldURL).hash || "#/";
+    if (!prev.startsWith("#/entry")) _prevHash = prev;
+    route();
+});
 window.addEventListener("DOMContentLoaded", route);
 
 // Global keyboard shortcuts
@@ -88,6 +99,10 @@ document.addEventListener("keydown", (e) => {
         case "s":
             // Go to settings
             window.location.hash = "#/settings";
+            break;
+        case "t":
+            // Go to stats
+            window.location.hash = "#/stats";
             break;
         case "/":
             // Focus search bar if on feed
@@ -126,6 +141,7 @@ function _toggleShortcutHelp() {
                 <tr><td><kbd>j</kbd> or <kbd>g</kbd></td><td>Go to Journal feed</td></tr>
                 <tr><td><kbd>b</kbd></td><td>Browse photos</td></tr>
                 <tr><td><kbd>s</kbd></td><td>Settings</td></tr>
+                <tr><td><kbd>t</kbd></td><td>Statistics</td></tr>
                 <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
                 <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Navigate photo gallery</td></tr>
                 <tr><td><kbd>Esc</kbd></td><td>Close modal / lightbox</td></tr>

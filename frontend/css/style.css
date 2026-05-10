@@ -11,7 +11,7 @@
     --accent-rgb: 139, 115, 85;
     --bg: #FAF6F1;
     --text: #2C2C2C;
-    --text-muted: #7A7A7A;
+    --text-muted: #666666;
     --accent: #8B7355;
     --accent-hover: #6E5A42;
     --card-bg: #FFFFFF;
@@ -78,7 +78,7 @@ body {
 .modal-field textarea:focus-visible {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.15);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
 }
 
 /* ===== Header ===== */
@@ -205,6 +205,11 @@ body {
     color: var(--text-muted);
     font-size: 0.8rem;
     padding: 5px 10px;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.82rem;
 }
 
 .btn-ghost:hover {
@@ -379,6 +384,16 @@ body {
     font-family: var(--font-serif);
     font-size: 1.8rem;
     color: var(--text);
+}
+
+.add-mode-banner {
+    background: rgba(var(--accent-rgb), 0.1);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    border-radius: var(--radius);
+    color: var(--accent);
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
 }
 
 /* ===== Photo Grid ===== */
@@ -717,7 +732,12 @@ kbd {
 }
 
 [data-theme="dark"] .modal-field-body .modal-body-textarea {
-    background-image: none;
+    background-image: repeating-linear-gradient(
+        transparent,
+        transparent calc(1.8em - 1px),
+        rgba(255, 255, 255, 0.05) calc(1.8em - 1px),
+        rgba(255, 255, 255, 0.05) 1.8em
+    );
 }
 
 .modal-photos {
@@ -758,7 +778,7 @@ kbd {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     font-size: 1rem;
     font-family: var(--font-serif);
     color: var(--text);
@@ -777,6 +797,12 @@ kbd {
     color: var(--text-muted);
     margin-left: 6px;
     font-weight: 400;
+}
+
+.markdown-hint {
+    margin-left: 0;
+    margin-top: 4px;
+    display: block;
 }
 
 /* Summary char count */
@@ -836,7 +862,7 @@ kbd {
 /* ===== Buttons ===== */
 .btn {
     padding: 10px 20px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     font-size: 0.9rem;
     font-family: var(--font-sans);
     cursor: pointer;
@@ -939,6 +965,40 @@ kbd {
     border-radius: var(--radius);
 }
 
+/* ===== Toast Notification ===== */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    box-shadow: var(--card-shadow);
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.toast--visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.toast--success {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.toast--error {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
 /* ===== Empty State ===== */
 .empty-state {
     text-align: center;
@@ -994,10 +1054,10 @@ kbd {
 
 .stat-card {
     background: var(--card-bg);
-    border-radius: 12px;
+    border-radius: var(--radius);
     padding: 20px;
     text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: var(--card-shadow);
     transition: transform 0.2s ease;
 }
 
@@ -1021,9 +1081,9 @@ kbd {
 
 .stats-charts {
     background: var(--card-bg);
-    border-radius: 12px;
+    border-radius: var(--radius);
     padding: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: var(--card-shadow);
 }
 
 .chart-container {
@@ -1045,6 +1105,13 @@ kbd {
 .chart-wrapper canvas {
     max-height: 400px;
     width: 100%;
+}
+
+.chart-error {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 32px 0;
 }
 
 @media (max-width: 768px) {
@@ -1134,7 +1201,7 @@ kbd {
     line-height: 1;
     width: 48px;
     height: 64px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1160,7 +1227,7 @@ kbd {
     font-size: 0.9rem;
     background: rgba(0, 0, 0, 0.4);
     padding: 4px 12px;
-    border-radius: 12px;
+    border-radius: 999px;
     z-index: 201;
     user-select: none;
 }
@@ -1223,6 +1290,10 @@ kbd {
 
     .nav-link {
         font-size: 0.85rem;
+        padding: 10px 12px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
     }
 
     #app-content {
@@ -1340,7 +1411,7 @@ kbd {
 .modal-asset-item {
     position: relative;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--radius);
     overflow: hidden;
     border: 2px solid transparent;
     transition: border-color 0.15s;
@@ -1403,7 +1474,7 @@ kbd {
     margin-bottom: 12px;
     padding: 8px 12px;
     background: var(--danger-bg);
-    border-radius: 6px;
+    border-radius: var(--radius);
     border: 1px solid var(--danger-border);
 }
 
@@ -1805,27 +1876,47 @@ kbd {
     border-left: 3px solid var(--accent);
     background: rgba(var(--accent-rgb), 0.06);
     border-radius: var(--radius);
-    padding: 16px 20px;
+    padding: 12px 16px;
     margin-bottom: 28px;
     animation: slideDown 0.35s ease-out both;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 .on-this-day-title {
     font-family: var(--font-serif);
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-style: italic;
     color: var(--accent);
-    margin-bottom: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .on-this-day-list {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 6px 16px;
 }
 
-.on-this-day-list .entry-card {
-    font-size: 0.92em;
+.on-this-day-link {
+    font-size: 0.9rem;
+    color: var(--text);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.on-this-day-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.on-this-day-year {
+    font-size: 0.78rem;
+    color: var(--text-muted);
 }
 
 /* ===== Empty State Polish ===== */

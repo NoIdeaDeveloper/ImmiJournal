@@ -1,4 +1,4 @@
-import { fetchEntry, deleteEntry, previewUrl, thumbnailUrl, removeAssetsFromEntry, fetchImmichConfig, getSettings } from "../api.js";
+import { fetchEntry, deleteEntry, previewUrl, thumbnailUrl, removeAssetsFromEntry, fetchImmichConfig } from "../api.js";
 import { formatDate, escapeHtml, parseTags, renderMarkdown, wordStats } from "../utils.js";
 import { showEntryModal, closeModal } from "../components/modal.js";
 
@@ -32,10 +32,10 @@ function setupAutoSlidingGallery(photosContainer, autoSlide = true) {
         const controls = document.createElement("div");
         controls.className = "gallery-controls";
         controls.innerHTML = `
-            <button class="gallery-control pause" title="Pause" aria-label="Pause">&#9646;&#9646;</button>
-            <button class="gallery-control play hidden" title="Play" aria-label="Play">&#9654;</button>
-            <button class="gallery-control prev" title="Previous">&#8249;</button>
-            <button class="gallery-control next" title="Next">&#8250;</button>
+            <button class="gallery-control pause" title="Pause" aria-label="Pause">⏸</button>
+            <button class="gallery-control play hidden" title="Play" aria-label="Play">▶</button>
+            <button class="gallery-control prev" title="Previous" aria-label="Previous photo">‹</button>
+            <button class="gallery-control next" title="Next" aria-label="Next photo">›</button>
         `;
         
         // Insert controls after the photos container
@@ -208,7 +208,7 @@ function setupAutoSlidingGallery(photosContainer, autoSlide = true) {
  * 
  * @returns {Promise<void>} Resolves when rendering is complete
  */
-export async function renderEntry(container, entryId) {
+export async function renderEntry(container, entryId, fromHash = "#/") {
     // Show loading skeleton while fetching data
     container.innerHTML = `
         <div class="entry-detail">
@@ -265,17 +265,17 @@ export async function renderEntry(container, entryId) {
                 <div id="image-load-errors" style="color: var(--accent); margin: 10px 0; display: none;">
                     Some images failed to load. <button id="retry-images" class="btn btn-small">Retry</button>
                 </div>
+                ${entry.title ? `<h2 class="entry-detail-title">${escapeHtml(entry.title)}</h2>` : ""}
                 <div class="entry-detail-date">
                     ${formatDate(entry.created_at)}
                     ${entry.updated_at !== entry.created_at ? ` &middot; edited ${formatDate(entry.updated_at)}` : ""}
                 </div>
-                ${entry.title ? `<h2 class="entry-detail-title">${escapeHtml(entry.title)}</h2>` : ""}
-                ${entryTags.length ? `<div class="entry-detail-tags">${entryTags.map(t => `<a class="entry-tag" href="#/feed?tag=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`).join("")}</div>` : ""}
+                ${entryTags.length ? `<div class="entry-detail-tags">${entryTags.map(t => `<a class="entry-tag" href="#/?tag=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`).join("")}</div>` : ""}
                 <div class="entry-detail-body markdown-body">${renderMarkdown(entry.body)}</div>
                 <div class="entry-detail-actions">
                     <button class="btn btn-secondary" id="entry-edit">Edit</button>
                     <button class="btn btn-danger" id="entry-delete">Delete</button>
-                    <a href="#/" class="btn btn-secondary">Back to Journal</a>
+                    <a href="${fromHash}" class="btn btn-secondary">${fromHash.startsWith("#/browse") ? "Back to Browse" : "Back to Journal"}</a>
                 </div>
             </div>
         `;
@@ -313,20 +313,13 @@ export async function renderEntry(container, entryId) {
             });
         }
 
-        // Auto-sliding gallery for multi-photo entries
+        // Auto-sliding gallery for multi-photo entries — read from localStorage (set by settings.js)
         if (isMulti) {
             const photosContainer = container.querySelector(".entry-detail-photos.multi");
             if (photosContainer) {
-                try {
-                    const settings = await getSettings();
-                    const shouldAutoSlide = settings.auto_slide_gallery ?? true;
-                    setupAutoSlidingGallery(photosContainer, shouldAutoSlide);
-                } catch (error) {
-                    console.warn("Failed to fetch settings, falling back to localStorage:", error);
-                    const autoSlideEnabled = localStorage.getItem("autoSlideEnabled");
-                    const shouldAutoSlide = autoSlideEnabled === null ? true : autoSlideEnabled === "true";
-                    setupAutoSlidingGallery(photosContainer, shouldAutoSlide);
-                }
+                const autoSlideEnabled = localStorage.getItem("autoSlideEnabled");
+                const shouldAutoSlide = autoSlideEnabled === null || autoSlideEnabled === "true";
+                setupAutoSlidingGallery(photosContainer, shouldAutoSlide);
             }
         }
 
@@ -345,7 +338,7 @@ export async function renderEntry(container, entryId) {
 
         // Delete
         document.getElementById("entry-delete").addEventListener("click", () => {
-            showDeleteConfirm(entry.id);
+            showDeleteConfirm(entry.id, entry.title);
         });
 
 
@@ -454,14 +447,15 @@ function showLightbox(srcs, startIndex = 0) {
  * If confirmed, calls the API to delete the entry and redirects to the journal feed.
  * Shows error messages if the deletion fails.
  */
-function showDeleteConfirm(entryId) {
+function showDeleteConfirm(entryId, entryTitle) {
     const overlay = document.getElementById("modal-overlay");
     const container = document.getElementById("modal-container");
     const triggerEl = document.activeElement;
+    const titleSnippet = entryTitle ? `"${escapeHtml(entryTitle)}"` : "this journal entry";
 
     container.innerHTML = `
         <h2 class="modal-title">Delete Entry</h2>
-        <p style="margin-bottom: 20px; color: var(--text-muted);">Are you sure you want to delete this journal entry? This cannot be undone.</p>
+        <p style="margin-bottom: 20px; color: var(--text-muted);">Are you sure you want to delete ${titleSnippet}? This cannot be undone.</p>
         <div id="delete-error" class="modal-inline-error hidden"></div>
         <div class="modal-actions">
             <button class="btn btn-secondary" id="delete-cancel">Cancel</button>

@@ -1,5 +1,5 @@
 import { thumbnailUrl, createEntry, updateEntry } from "../api.js";
-import { escapeHtml, escapeAttr } from "../utils.js";
+import { escapeHtml, escapeAttr, formatDate, showToast } from "../utils.js";
 import { showRemoveImagesModal } from "../views/entry.js";
 import { launchConfetti } from "../confetti.js";
 import { invalidateLinkedAssetIdsCache } from "../views/browse.js";
@@ -10,9 +10,31 @@ const container = document.getElementById("modal-container");
 // Module-level handles so closeModal can clean them up
 let _overlayClickHandler = null;
 let _escHandler = null;
+let _focusTrapHandler = null;
+let _ctrlEnterHandler = null;
 let _previousFocus = null;
 
 const SUMMARY_MAX = 200;
+
+/** Trap Tab/Shift+Tab focus within the modal container. */
+function _setupFocusTrap() {
+    if (_focusTrapHandler) container.removeEventListener("keydown", _focusTrapHandler);
+    _focusTrapHandler = (e) => {
+        if (e.key !== "Tab") return;
+        const focusable = Array.from(container.querySelectorAll(
+            'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+        )).filter((el) => !el.disabled && el.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+            if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+        } else {
+            if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+    };
+    container.addEventListener("keydown", _focusTrapHandler);
+}
 
 /** Attach overlay-click and Escape-key dismissal handlers, replacing any previous ones. */
 function _setupDismissal(closeFn) {
@@ -52,20 +74,21 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
     const todayISO = toDateInputValue(existingEntry?.created_at || photoCreatedAt || null);
 
     container.innerHTML = `
-        <h2 class="modal-title">${isEdit ? "Edit Entry" : "Write"}</h2>
+        <h2 class="modal-title">${isEdit ? "Edit Entry" : "New Entry"}</h2>
         <div class="modal-photos">
             ${assetIds.map((id) => `<img src="${thumbnailUrl(id)}" alt="Photo">`).join("")}
         </div>
+        <div class="modal-field">
+            <label for="modal-entry-title">Title <span class="modal-field-hint">(optional)</span></label>
+            <input type="text" id="modal-entry-title" placeholder="Give this memory a title..."
+                   value="${isEdit ? escapeAttr(existingEntry.title) : ""}">
+        </div>
         <div class="modal-field modal-field-body">
-            <textarea id="modal-entry-body" class="modal-body-textarea" placeholder="Write about this moment...">${isEdit ? escapeHtml(existingEntry.body) : ""}</textarea>
+            <textarea id="modal-entry-body" class="modal-body-textarea" placeholder="Write about this moment..."></textarea>
             <div id="modal-body-error" class="modal-inline-error hidden">Please write something before saving.</div>
+            <p class="modal-field-hint markdown-hint">Markdown supported: **bold**, *italic*, # headings, - lists, [links](url)</p>
         </div>
         <div class="modal-secondary-fields">
-            <div class="modal-field">
-                <label for="modal-entry-title">Title <span class="modal-field-hint">(optional)</span></label>
-                <input type="text" id="modal-entry-title" placeholder="Give this memory a title..."
-                       value="${isEdit ? escapeAttr(existingEntry.title) : ""}">
-            </div>
             <div class="modal-field">
                 <label for="modal-entry-date">Date</label>
                 <input type="date" id="modal-entry-date" value="${todayISO}">
@@ -83,9 +106,9 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
                 </label>
                 <textarea id="modal-entry-summary" class="modal-summary-input"
                           placeholder="A short summary shown on your journal feed..."
-                          maxlength="${SUMMARY_MAX}">${escapeHtml(existingEntry.summary || "")}</textarea>
+                          maxlength="${SUMMARY_MAX}"></textarea>
                 <div class="summary-char-count">
-                    <span id="summary-char-current">${(existingEntry.summary || "").length}</span> / ${SUMMARY_MAX} characters
+                    <span id="summary-char-current">0</span> / ${SUMMARY_MAX} characters
                 </div>
             </div>
             <div class="modal-field">
@@ -109,20 +132,24 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
 
     overlay.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    _setupFocusTrap();
+
+    // Set textarea values via .value to avoid HTML double-encoding
+    const textarea = document.getElementById("modal-entry-body");
+    if (isEdit) textarea.value = existingEntry.body;
 
     // Summary character count (edit mode only)
     const summaryEl = document.getElementById("modal-entry-summary");
     if (summaryEl) {
+        summaryEl.value = existingEntry.summary || "";
         const charCountEl = document.getElementById("summary-char-current");
+        charCountEl.textContent = summaryEl.value.length;
         summaryEl.addEventListener("input", () => {
             const len = summaryEl.value.length;
             charCountEl.textContent = len;
             charCountEl.classList.toggle("at-limit", len >= SUMMARY_MAX);
         });
     }
-
-    // Auto-resize main textarea and clear validation error
-    const textarea = document.getElementById("modal-entry-body");
     textarea.addEventListener("input", () => {
         textarea.style.height = "auto";
         textarea.style.height = textarea.scrollHeight + "px";
@@ -132,9 +159,28 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
     // Focus the body textarea — the primary writing surface
     textarea.focus();
 
+    if (_ctrlEnterHandler) container.removeEventListener("keydown", _ctrlEnterHandler);
+    _ctrlEnterHandler = (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            document.getElementById("modal-save")?.click();
+        }
+    };
+    container.addEventListener("keydown", _ctrlEnterHandler);
+
+    // Track whether any field has been modified so we can warn before discarding
+    let _dirty = false;
+    const markDirty = () => { _dirty = true; };
+    container.querySelectorAll("input, textarea").forEach(el => el.addEventListener("input", markDirty));
+
+    function closeWithGuard() {
+        if (_dirty && !window.confirm("Discard unsaved changes?")) return;
+        closeModal();
+    }
+
     // Cancel
-    document.getElementById("modal-cancel").addEventListener("click", closeModal);
-    _setupDismissal(closeModal);
+    document.getElementById("modal-cancel").addEventListener("click", closeWithGuard);
+    _setupDismissal(closeWithGuard);
 
     // Add/Remove image buttons (edit mode only)
     if (isEdit) {
@@ -184,33 +230,22 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
         saveBtn.textContent = "Saving...";
 
         try {
-            let entry;
-            if (isEdit) {
-                entry = await updateEntry(existingEntry.id, {
-                    title,
-                    tags,
-                    summary,
-                    body,
-                    immich_asset_ids: assetIds,
-                    created_at: dateInput ? dateInputToISO(dateInput) : undefined,
-                });
-            } else {
-                entry = await createEntry({
-                    immich_asset_ids: assetIds,
-                    title,
-                    tags,
-                    summary,
-                    body,
-                    created_at: dateInput ? dateInputToISO(dateInput) : undefined,
-                });
-            }
+            const payload = {
+                title, tags, summary, body,
+                immich_asset_ids: assetIds,
+                created_at: dateInput ? dateInputToISO(dateInput) : undefined,
+            };
+            const entry = isEdit
+                ? await updateEntry(existingEntry.id, payload)
+                : await createEntry(payload);
             closeModal();
 
             // Invalidate linked asset IDs cache so browse view reflects the new/updated entry
             invalidateLinkedAssetIdsCache();
 
-            // Confetti on new entries (if enabled in settings)
-            if (!isEdit && localStorage.getItem("confettiEnabled") !== "false") {
+            if (isEdit) {
+                showToast("Entry saved");
+            } else if (localStorage.getItem("confettiEnabled") !== "false") {
                 launchConfetti();
             }
 
@@ -233,7 +268,7 @@ export function showEntryPickerModal(assetId, entries) {
             ${entries.map((e) => `
                 <button class="entry-picker-item" data-entry-id="${e.id}">
                     <span style="flex: 1">${escapeHtml(e.title || "Untitled")}</span>
-                    <span class="picker-date">${e.created_at ? e.created_at.slice(0, 10) : ""}</span>
+                    <span class="picker-date">${e.created_at ? formatDate(e.created_at) : ""}</span>
                 </button>
             `).join("")}
             <button class="entry-picker-item new-entry" id="picker-new">+ Create New Entry</button>
@@ -245,6 +280,7 @@ export function showEntryPickerModal(assetId, entries) {
 
     overlay.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    _setupFocusTrap();
 
     _setupDismissal(closeModal);
 
@@ -296,6 +332,7 @@ export function showReorderImagesModal(entryId, assetIds) {
 
     overlay.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    _setupFocusTrap();
 
     _setupDismissal(closeModal);
 
@@ -363,6 +400,14 @@ export function closeModal() {
     if (_escHandler) {
         document.removeEventListener("keydown", _escHandler);
         _escHandler = null;
+    }
+    if (_focusTrapHandler) {
+        container.removeEventListener("keydown", _focusTrapHandler);
+        _focusTrapHandler = null;
+    }
+    if (_ctrlEnterHandler) {
+        container.removeEventListener("keydown", _ctrlEnterHandler);
+        _ctrlEnterHandler = null;
     }
 
     _previousFocus?.focus();

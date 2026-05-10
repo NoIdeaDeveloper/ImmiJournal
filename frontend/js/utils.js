@@ -114,3 +114,17 @@ export function parseTags(tagString) {
     if (!tagString) return [];
     return tagString.split(",").map((t) => t.trim()).filter(Boolean);
 }
+
+export function showToast(message, type = "success") {
+    const toast = document.createElement("div");
+    toast.className = `toast toast--${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    // Trigger animation
+    requestAnimationFrame(() => toast.classList.add("toast--visible"));
+    setTimeout(() => {
+        toast.classList.remove("toast--visible");
+        toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+        setTimeout(() => toast.remove(), 500);
+    }, 2800);
+}

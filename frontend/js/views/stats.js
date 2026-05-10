@@ -16,6 +16,18 @@ export async function renderStats(container) {
                     <div class="stat-value" id="active-months">-</div>
                     <div class="stat-label">Active Months</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="current-streak">-</div>
+                    <div class="stat-label">Day Streak</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="longest-streak">-</div>
+                    <div class="stat-label">Longest Streak</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="most-active-month">-</div>
+                    <div class="stat-label">Most Active Month</div>
+                </div>
             </div>
             <div class="stats-charts">
                 <div class="chart-container">
@@ -43,15 +55,28 @@ export async function renderStats(container) {
         // Update summary cards
         document.getElementById("total-entries").textContent = stats.total_entries;
         document.getElementById("active-months").textContent = stats.by_month.length;
+        document.getElementById("current-streak").textContent = fmtStreak(stats.current_streak);
+        document.getElementById("longest-streak").textContent = fmtStreak(stats.longest_streak);
+        if (stats.by_month.length > 0) {
+            const best = stats.by_month.reduce((a, b) => (b.count > a.count ? b : a));
+            document.getElementById("most-active-month").textContent =
+                new Date(`${best.month}-01`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        } else {
+            document.getElementById("most-active-month").textContent = "—";
+        }
 
         // Heatmap
         if (stats.by_day && stats.by_day.length > 0) {
             renderHeatmap(stats.by_day);
+        } else {
+            showChartEmpty("heatmap-container", ".heatmap-grid", "No activity yet — write your first entry!");
         }
 
         // Tag cloud
         if (stats.top_tags && stats.top_tags.length > 0) {
             renderTagCloud(stats.top_tags);
+        } else {
+            showChartEmpty("tagcloud-container", ".tag-cloud", "No tags yet — add tags to your entries.");
         }
 
         // Lazy load Chart.js only when needed
@@ -74,6 +99,17 @@ export async function renderStats(container) {
             </div>
         `;
     }
+}
+
+function fmtStreak(n) {
+    return n > 0 ? `${n} day${n === 1 ? "" : "s"}` : "—";
+}
+
+function showChartEmpty(containerId, childSelector, message) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.style.display = "";
+    el.querySelector(childSelector).innerHTML = `<p class="chart-error">${message}</p>`;
 }
 
 function renderHeatmap(byDay) {
@@ -132,7 +168,7 @@ function renderTagCloud(topTags) {
     cloud.innerHTML = topTags.map(({ tag, count }) => {
         const ratio = maxCount === minCount ? 1 : (count - minCount) / (maxCount - minCount);
         const size = (0.75 + ratio * 0.75).toFixed(2);
-        return `<a class="entry-tag tag-cloud-item" href="#/feed?tag=${encodeURIComponent(tag)}" style="font-size:${size}rem">${escapeHtml(tag)}</a>`;
+        return `<a class="entry-tag tag-cloud-item" href="#/?tag=${encodeURIComponent(tag)}" style="font-size:${size}rem">${escapeHtml(tag)}</a>`;
     }).join(" ");
 
     container.style.display = "";

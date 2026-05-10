@@ -27,8 +27,10 @@ export function renderEntryCard(entry) {
         ? escapeHtml(safeSummary)
         : escapeHtml(truncate(safeBody, 200));
 
+    // Use <span> not <a> — the card itself is an <a>, so nesting anchors is invalid HTML.
+    // Click delegation below intercepts tag clicks and navigates without following the card link.
     const tagsHtml = tags.length
-        ? `<div class="entry-card-tags">${tags.map(t => `<a class="entry-tag" href="#/feed?tag=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`).join("")}</div>`
+        ? `<div class="entry-card-tags">${tags.map(t => `<span class="entry-tag" role="link" tabindex="0" data-tag="${encodeURIComponent(t)}">${escapeHtml(t)}</span>`).join("")}</div>`
         : "";
 
     const { readingTime } = wordStats(safeBody);
@@ -63,6 +65,15 @@ export function renderEntryCard(entry) {
                 <div class="entry-card-meta">${dateHtml}</div>
             </div>
         `;
+    }
+
+    // Tag pill click — navigate to tag filter without following the card's own href
+    if (tags.length) {
+        card.querySelectorAll(".entry-tag[data-tag]").forEach((pill) => {
+            const navigate = () => { window.location.hash = `#/?tag=${pill.dataset.tag}`; };
+            pill.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); navigate(); });
+            pill.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); navigate(); } });
+        });
     }
 
     return card;

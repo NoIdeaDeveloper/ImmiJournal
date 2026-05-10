@@ -12,45 +12,50 @@ export function renderBarChart(canvasId, data, options) {
 
 // Function to render monthly statistics chart
 export function renderMonthlyChart(canvasId, monthlyData) {
-    // Prepare data for chart
     const labels = monthlyData.map(item => {
         const [year, month] = item.month.split("-");
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         return `${monthNames[parseInt(month)-1]} ${year}`;
     });
-    
+
     const counts = monthlyData.map(item => item.count);
-    
-    // Chart configuration
+
+    // Read theme colors from CSS variables so the chart adapts to light/dark mode
+    const style = getComputedStyle(document.documentElement);
+    const accentRgb = style.getPropertyValue("--accent-rgb").trim();
+    const textMuted = style.getPropertyValue("--text-muted").trim() || "#888";
+    const border = style.getPropertyValue("--border").trim() || "#ddd";
+
     const chartData = {
         labels: labels,
         datasets: [{
             label: "Entries",
             data: counts,
-            backgroundColor: "rgba(75, 192, 192, 0.6)",
-            borderColor: "rgba(75, 192, 192, 1)",
+            backgroundColor: `rgba(${accentRgb}, 0.5)`,
+            borderColor: `rgba(${accentRgb}, 1)`,
             borderWidth: 1
         }]
     };
-    
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
             y: {
                 beginAtZero: true,
-                ticks: {
-                    stepSize: 1
-                }
+                ticks: { stepSize: 1, color: textMuted },
+                grid: { color: border }
+            },
+            x: {
+                ticks: { color: textMuted },
+                grid: { color: border }
             }
         },
         plugins: {
-            legend: {
-                display: false
-            }
+            legend: { display: false }
         }
     };
-    
+
     return renderBarChart(canvasId, chartData, chartOptions);
 }

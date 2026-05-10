@@ -1,11 +1,10 @@
 import { fetchAssets, checkAssetsWithEntries, addAssetsToEntry, fetchEntry, fetchEntriesForAsset, getAllLinkedAssetIds } from "../api.js";
 import { renderPhotoGrid } from "../components/photoGrid.js";
 import { showEntryModal, showEntryPickerModal } from "../components/modal.js";
-import { escapeHtml } from "../utils.js";
+import { escapeHtml, showToast } from "../utils.js";
 
 let multiSelectActive = false;
 let selectedAssetIds = [];
-let _noticeTimer = null;
 
 // Cache for asset IDs that have journal entries
 let _linkedAssetIds = null;
@@ -55,9 +54,6 @@ export async function renderBrowse(container) {
     removeSelectionBar();
     multiSelectActive = false;
     selectedAssetIds = [];
-    clearTimeout(_noticeTimer);
-    _noticeTimer = null;
-
     // Parse URL params from the hash (e.g. #/browse?entry=1&mode=add)
     // window.location.search is empty in hash-based routing
     const hashQuery = window.location.hash.includes('?')
@@ -85,6 +81,7 @@ export async function renderBrowse(container) {
 
     container.innerHTML = `
         <div class="browse-container">
+            ${isAddMode ? `<div class="add-mode-banner">Select photos to add to your entry, then click <strong>Add to Entry</strong>.</div>` : ""}
             <div class="browse-header">
                 <h2 class="browse-title">${isAddMode ? 'Select Photos to Add' : 'Your Photos'}</h2>
                 <button class="btn btn-secondary" id="toggle-select">${isAddMode ? 'Cancel' : 'Select Multiple'}</button>
@@ -113,9 +110,15 @@ export async function renderBrowse(container) {
 
     const returnToEntry = () => { window.location.hash = `#/entry/${entryIdForAdding}`; };
 
+    // Auto-enable multi-select in add-mode so photos are immediately tappable
+    if (isAddMode) {
+        multiSelectActive = true;
+        gridEl.classList.add("multi-select-active");
+    }
+
     // Toggle multi-select mode
     toggleBtn.addEventListener("click", () => {
-        if (isAddMode && !multiSelectActive) {
+        if (isAddMode && multiSelectActive) {
             returnToEntry();
             return;
         }
@@ -138,7 +141,7 @@ export async function renderBrowse(container) {
     if (addToEntryBtn) {
         addToEntryBtn.addEventListener("click", async () => {
             if (selectedAssetIds.length === 0) {
-                showBrowseNotice("Select at least one photo to add.", "error");
+                showToast("Select at least one photo to add.", "error");
                 return;
             }
 
@@ -152,7 +155,7 @@ export async function renderBrowse(container) {
                 });
                 window.location.hash = `#/entry/${entryIdForAdding}`;
             } catch (err) {
-                showBrowseNotice("Failed to add images: " + err.message, "error");
+                showToast("Failed to add images: " + err.message, "error");
                 addToEntryBtn.disabled = false;
                 addToEntryBtn.textContent = "Add to Entry";
             }
@@ -187,6 +190,13 @@ export async function renderBrowse(container) {
 
                 gridEl.appendChild(renderPhotoGrid(assets, assetsWithEntries, existingAssetIds));
                 attachGridClickHandlers(gridEl);
+            } else if (page === 1) {
+                gridEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📷</div>
+                        <h2>No photos found</h2>
+                        <p>Your Immich library appears to be empty, or photos are still syncing.</p>
+                    </div>`;
             }
 
             hasMore = hasMorePages(data, page, pageSize);
@@ -336,21 +346,6 @@ function hasMorePages(data, currentPage, pageSize) {
     return items.length === pageSize;
 }
 
-function showBrowseNotice(message, type = "info") {
-    let notice = document.querySelector(".browse-notice");
-    if (!notice) {
-        notice = document.createElement("div");
-        notice.className = "browse-notice";
-        const container = document.querySelector(".browse-container");
-        if (container) container.prepend(notice);
-        else document.body.prepend(notice);
-    }
-    notice.textContent = message;
-    notice.dataset.type = type;
-    notice.classList.remove("browse-notice-hidden");
-    clearTimeout(_noticeTimer);
-    _noticeTimer = setTimeout(() => notice.classList.add("browse-notice-hidden"), 3500);
-}
 
 function skeletonGrid(count) {
     const header = `<div class="skeleton date-group-header-skeleton"></div>`;

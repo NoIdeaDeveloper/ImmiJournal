@@ -1,5 +1,6 @@
 import { getSettings, updateSettings, importJournal } from "../api.js";
 import { applyTheme } from "../app.js";
+import { showToast } from "../utils.js";
 
 export async function renderSettings(container) {
     container.innerHTML = `
@@ -15,8 +16,8 @@ export async function renderSettings(container) {
                         </span>
                     </label>
                     <div class="theme-toggle-group">
-                        <button class="theme-btn" id="theme-dark">Dark</button>
-                        <button class="theme-btn" id="theme-light">Light</button>
+                        <button class="theme-btn" id="theme-dark">🌙 Dark</button>
+                        <button class="theme-btn" id="theme-light">☀️ Light</button>
                     </div>
                 </div>
             </div>
@@ -68,6 +69,15 @@ export async function renderSettings(container) {
                 <p class="settings-about">ImmiJournal - A journaling app for your photos and memories.</p>
                 <p class="settings-version">Version 1.0.0</p>
             </div>
+            <div class="settings-section">
+                <div class="setting-item">
+                    <span class="setting-description">
+                        <strong>Sign Out</strong>
+                        <span class="setting-subtext">End your current session</span>
+                    </span>
+                    <button class="btn btn-secondary" id="logout-btn">Sign out</button>
+                </div>
+            </div>
         </div>
     `;
 
@@ -86,28 +96,27 @@ export async function renderSettings(container) {
         };
     }
 
+    function updateThemeButtons(theme) {
+        document.getElementById("theme-dark").classList.toggle("active", theme === "dark");
+        document.getElementById("theme-light").classList.toggle("active", theme === "light");
+    }
+
+    async function saveTheme(theme) {
+        currentSettings.theme = theme;
+        applyTheme(theme);
+        updateThemeButtons(theme);
+        try {
+            await updateSettings(getCurrentPayload());
+        } catch (err) {
+            console.error("Failed to save theme:", err);
+        }
+    }
+
     try {
         const settings = await getSettings();
         currentSettings = { ...currentSettings, ...settings };
 
-        // Theme toggle
         updateThemeButtons(currentSettings.theme);
-
-        async function saveTheme(theme) {
-            currentSettings.theme = theme;
-            applyTheme(theme);
-            updateThemeButtons(theme);
-            try {
-                await updateSettings(getCurrentPayload());
-            } catch (err) {
-                console.error("Failed to save theme:", err);
-            }
-        }
-
-        function updateThemeButtons(theme) {
-            document.getElementById("theme-dark").classList.toggle("active", theme === "dark");
-            document.getElementById("theme-light").classList.toggle("active", theme === "light");
-        }
 
         document.getElementById("theme-dark").addEventListener("click", () => saveTheme("dark"));
         document.getElementById("theme-light").addEventListener("click", () => saveTheme("light"));
@@ -119,7 +128,7 @@ export async function renderSettings(container) {
             localStorage.setItem("autoSlideEnabled", isEnabled.toString());
             try {
                 await updateSettings(getCurrentPayload());
-                showSaved(e.target);
+                showToast("Setting saved");
             } catch {
                 e.target.checked = !isEnabled;
             }
@@ -135,7 +144,7 @@ export async function renderSettings(container) {
             localStorage.setItem("confettiEnabled", isEnabled.toString());
             try {
                 await updateSettings(getCurrentPayload());
-                showSaved(e.target);
+                showToast("Setting saved");
             } catch {
                 e.target.checked = !isEnabled;
                 localStorage.setItem("confettiEnabled", (!isEnabled).toString());
@@ -147,10 +156,9 @@ export async function renderSettings(container) {
 
         // Fallback from localStorage
         const localTheme = localStorage.getItem("theme") || "dark";
-        document.getElementById("theme-dark").classList.toggle("active", localTheme === "dark");
-        document.getElementById("theme-light").classList.toggle("active", localTheme === "light");
-        document.getElementById("theme-dark").addEventListener("click", () => applyTheme("dark"));
-        document.getElementById("theme-light").addEventListener("click", () => applyTheme("light"));
+        updateThemeButtons(localTheme);
+        document.getElementById("theme-dark").addEventListener("click", () => saveTheme("dark"));
+        document.getElementById("theme-light").addEventListener("click", () => saveTheme("light"));
 
         const autoSlide = localStorage.getItem("autoSlideEnabled");
         if (autoSlide !== null) document.getElementById("auto-slide-toggle").checked = autoSlide === "true";
@@ -159,14 +167,30 @@ export async function renderSettings(container) {
         document.getElementById("confetti-toggle").checked = confetti !== "false";
     }
 
+    // Logout handler
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+        try {
+            await fetch("/api/auth/logout", { method: "POST" });
+        } catch { /* ignore network errors */ }
+        window.location.href = "/login";
+    });
+
     // Import handler
     document.getElementById("import-file").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         const statusEl = document.getElementById("import-status");
-        statusEl.textContent = "Importing...";
+        statusEl.textContent = `Selected: ${file.name}`;
         statusEl.style.color = "var(--text-muted)";
+
+        if (!window.confirm(`Import "${file.name}"? This will add all entries from the file. Re-importing the same file creates duplicates.`)) {
+            e.target.value = "";
+            statusEl.textContent = "";
+            return;
+        }
+
+        statusEl.textContent = "Importing...";
         e.target.disabled = true;
 
         try {
@@ -174,10 +198,11 @@ export async function renderSettings(container) {
             const data = JSON.parse(text);
             const result = await importJournal(data);
             statusEl.textContent = `Imported ${result.imported} entries successfully.`;
-            statusEl.style.color = "var(--accent)";
+            statusEl.style.color = "";
+            showToast(`Imported ${result.imported} entries`);
         } catch (err) {
             statusEl.textContent = "Import failed: " + err.message;
-            statusEl.style.color = "#c0392b";
+            statusEl.style.color = "var(--danger)";
         } finally {
             e.target.disabled = false;
             e.target.value = "";
@@ -185,15 +210,3 @@ export async function renderSettings(container) {
     });
 }
 
-function showSaved(toggleEl) {
-    toggleEl.disabled = true;
-    const msg = document.createElement("span");
-    msg.textContent = toggleEl.checked ? "Enabled" : "Disabled";
-    msg.className = "setting-saved";
-    msg.style.marginLeft = "10px";
-    toggleEl.parentNode.appendChild(msg);
-    setTimeout(() => {
-        toggleEl.disabled = false;
-        msg.remove();
-    }, 1500);
-}

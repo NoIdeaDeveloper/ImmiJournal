@@ -32,9 +32,14 @@ export function renderPhotoGrid(assets, assetsWithEntries, alreadyInEntry = new 
         item.className = `photo-grid-item${isAlreadyAdded ? " already-in-entry" : ""}`;
         item.dataset.assetId = asset.id;
         if (asset.fileCreatedAt) item.dataset.fileCreatedAt = asset.fileCreatedAt;
-        if (!isAlreadyAdded) {
+        const labelParts = [asset.originalFileName || "Photo"];
+        if (assetDate) labelParts.push(assetDate);
+        if (isAlreadyAdded) {
+            item.setAttribute("aria-label", `${labelParts.join(", ")} — already added`);
+        } else {
             item.setAttribute("role", "button");
             item.setAttribute("tabindex", "0");
+            item.setAttribute("aria-label", `${labelParts.join(", ")}${hasEntry ? " — has journal entry" : ""}`);
         }
 
         item.innerHTML = `

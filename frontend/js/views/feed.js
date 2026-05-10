@@ -1,6 +1,6 @@
 import { fetchEntries, searchEntries, fetchOnThisDay, fetchRandomEntry, fetchJournalStats } from "../api.js";
 import { renderEntryCard } from "../components/entryCard.js";
-import { escapeHtml } from "../utils.js";
+import { escapeHtml, formatDate, showToast } from "../utils.js";
 
 export async function renderFeed(container) {
     // Parse optional tag filter from URL hash e.g. #/feed?tag=travel
@@ -84,39 +84,24 @@ export async function renderFeed(container) {
         loadMoreEl.classList.add("hidden");
         updateClearButton();
 
-        // On first unfiltered load, fetch On This Day + stats in parallel
         const isUnfiltered = !hasActiveFilters();
-        const sidePromises = isUnfiltered
-            ? [fetchOnThisDay().catch(() => []), fetchJournalStats().catch(() => null)]
-            : [Promise.resolve(null), Promise.resolve(null)];
+        const onThisDayPromise = isUnfiltered ? fetchOnThisDay().catch(() => []) : Promise.resolve(null);
 
         try {
-            const [data, [onThisDayEntries, stats]] = await Promise.all([
-                loadPage(1),
-                Promise.all(sidePromises),
-            ]);
+            const [data, onThisDayEntries] = await Promise.all([loadPage(1), onThisDayPromise]);
 
-            // Streak pill
-            if (stats && stats.current_streak > 0) {
-                const label = stats.current_streak === 1 ? "day streak" : "days streak";
-                streakPill.textContent = `\uD83D\uDD25 ${stats.current_streak} ${label}`;
-                streakPill.style.display = "inline-flex";
-                if (stats.current_streak >= 7) streakPill.classList.add("streak-pill--hot");
-            }
-
-            // On This Day banner
+            // On This Day banner — compact text links, not full cards
             if (isUnfiltered && onThisDayEntries && onThisDayEntries.length > 0) {
-                const bannerEl = document.createElement("div");
-                bannerEl.className = "on-this-day-banner";
-                bannerEl.innerHTML = `<h3 class="on-this-day-title">On this day</h3>`;
-                const list = document.createElement("div");
-                list.className = "on-this-day-list";
-                for (const entry of onThisDayEntries) {
-                    list.appendChild(renderEntryCard(entry));
-                }
-                bannerEl.appendChild(list);
-                onThisDayBanner.innerHTML = "";
-                onThisDayBanner.appendChild(bannerEl);
+                const links = onThisDayEntries.map((entry) => {
+                    const label = entry.title ? escapeHtml(entry.title) : formatDate(entry.created_at);
+                    const year = entry.created_at ? new Date(entry.created_at).getUTCFullYear() : "";
+                    return `<a class="on-this-day-link" href="#/entry/${entry.id}">${label}<span class="on-this-day-year">${year}</span></a>`;
+                }).join("");
+                onThisDayBanner.innerHTML = `
+                    <div class="on-this-day-banner">
+                        <span class="on-this-day-title">On this day</span>
+                        <div class="on-this-day-list">${links}</div>
+                    </div>`;
             } else {
                 onThisDayBanner.innerHTML = "";
             }
@@ -180,6 +165,16 @@ export async function renderFeed(container) {
         }
     }
 
+    // Fetch stats once — streak doesn't change as the user types or filters
+    fetchJournalStats().then((stats) => {
+        if (stats && stats.current_streak > 0) {
+            const label = stats.current_streak === 1 ? "day streak" : "days streak";
+            streakPill.textContent = `🔥 ${stats.current_streak} ${label}`;
+            streakPill.style.display = "inline-flex";
+            if (stats.current_streak >= 7) streakPill.classList.add("streak-pill--hot");
+        }
+    }).catch(() => {});
+
     await renderFirstPage();
 
     // Surprise me button
@@ -191,6 +186,7 @@ export async function renderFeed(container) {
             window.location.hash = `#/entry/${entry.id}`;
         } catch (err) {
             console.error("Failed to fetch random entry:", err);
+            showToast("Couldn't find a random entry. Try again.", "error");
         } finally {
             surpriseBtn.textContent = "Surprise me";
             surpriseBtn.disabled = false;
@@ -234,7 +230,7 @@ export async function renderFeed(container) {
     loadMoreBtn.addEventListener("click", loadNextPage);
     loadMoreObserver.observe(loadMoreBtn);
 
-    // Debounced search
+    // Debounced search — composable with date filters and tag filter
     let debounceTimer = null;
     searchInput.addEventListener("input", () => {
         clearTimeout(debounceTimer);
@@ -243,7 +239,6 @@ export async function renderFeed(container) {
             const newQuery = searchInput.value;
             if (newQuery === currentQuery) return;
             currentQuery = newQuery;
-            currentTag = "";
             renderFirstPage();
         }, 300);
     });
@@ -256,18 +251,12 @@ export async function renderFeed(container) {
     }
     window.addEventListener("hashchange", onHashChange);
 
-    // Date filters
+    // Date filters — composable with search query and tag filter
     dateFromInput.addEventListener("change", () => {
-        currentQuery = "";
-        currentTag = "";
-        searchInput.value = "";
         currentDateFrom = dateFromInput.value;
         renderFirstPage();
     });
     dateToInput.addEventListener("change", () => {
-        currentQuery = "";
-        currentTag = "";
-        searchInput.value = "";
         currentDateTo = dateToInput.value;
         renderFirstPage();
     });
