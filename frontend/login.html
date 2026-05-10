@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImmiJournal — Login</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2.5rem 2rem;
+            width: 100%;
+            max-width: 360px;
+            box-shadow: var(--card-shadow);
+        }
+        .login-card h1 {
+            margin: 0 0 0.25rem;
+            font-size: 1.4rem;
+            color: var(--accent);
+            font-family: var(--font-serif);
+        }
+        .login-card p {
+            margin: 0 0 1.5rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .login-card label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            color: var(--text);
+        }
+        .login-card input[type="password"] {
+            width: 100%;
+            padding: 0.6rem 0.75rem;
+            font-size: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-sizing: border-box;
+            margin-bottom: 1rem;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .login-card button {
+            width: 100%;
+            padding: 0.65rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 6px;
+            border: none;
+            background: var(--accent);
+            color: #fff;
+        }
+        .login-card button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+        #error-msg {
+            color: var(--danger, #d9534f);
+            font-size: 0.85rem;
+            margin-top: 0.75rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <script>document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";</script>
+    <div class="login-card">
+        <h1>ImmiJournal</h1>
+        <p>Enter your password to continue.</p>
+        <form id="login-form">
+            <label for="password">Password</label>
+            <input type="password" id="password" autocomplete="current-password" autofocus required>
+            <button type="submit" id="submit-btn">Sign in</button>
+            <p id="error-msg">Incorrect password. Please try again.</p>
+        </form>
+    </div>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const errorMsg = document.getElementById('error-msg');
+            const password = document.getElementById('password').value;
+
+            btn.disabled = true;
+            errorMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password }),
+                });
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    errorMsg.style.display = 'block';
+                    btn.disabled = false;
+                }
+            } catch {
+                errorMsg.textContent = 'Could not reach the server. Please try again.';
+                errorMsg.style.display = 'block';
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+services:
+  immijournal:
+    build: .
+    container_name: immijournal
+    ports:
+      - "8421:8000"
+    environment:
+      - IMMICH_BASE_URL=${IMMICH_BASE_URL:-http://192.168.1.180:8080/api}
+      - IMMICH_API_KEY=${IMMICH_API_KEY}
+      - DATABASE_PATH=${DATABASE_PATH:-/data/immijournal.db}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+    volumes:
+      - /mnt/user/appdata/immijournal:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    network_mode: bridge

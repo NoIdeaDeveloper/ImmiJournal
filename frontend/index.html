@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImmiJournal</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header id="app-header">
+        <h1><a href="#/" id="logo">ImmiJournal</a></h1>
+        <nav>
+            <a href="#/" class="nav-link active" data-view="feed">Journal</a>
+            <a href="#/browse" class="nav-link" data-view="browse">Photos</a>
+            <a href="#/stats" class="nav-link" data-view="stats">Stats</a>
+            <a href="#/settings" class="nav-link" data-view="settings">Settings</a>
+        </nav>
+    </header>
+    <main id="app-content">
+    </main>
+    <div id="modal-overlay" class="hidden">
+        <div id="modal-container"></div>
+    </div>
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
