@@ -1,3 +1,5 @@
+import time
+from datetime import date, timedelta, timezone, datetime
 from fastapi import APIRouter, HTTPException
 from backend.models import SettingsResponse, SettingsUpdate
 from backend.database import get_db
@@ -6,12 +8,21 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Simple in-process cache for /api/stats (5-minute TTL)
+_stats_cache: dict = {}
+_STATS_CACHE_TTL = 300  # seconds
+
+
+def invalidate_stats_cache() -> None:
+    """Call this whenever entries are written so the next /stats request is fresh."""
+    _stats_cache.clear()
+
 
 @router.get("/settings", response_model=SettingsResponse)
 async def get_settings():
     """Get current application settings"""
     logger.debug("Fetching application settings")
-    
+
     db = get_db()
     try:
         cursor = await db.execute("SELECT key, value FROM settings WHERE key IN ('auto_slide_gallery', 'theme', 'confetti_enabled')")
@@ -23,7 +34,7 @@ async def get_settings():
         confetti_enabled = row_map.get("confetti_enabled", "true").lower() == "true"
 
         return SettingsResponse(auto_slide_gallery=auto_slide_gallery, theme=theme, confetti_enabled=confetti_enabled)
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch settings")
@@ -33,13 +44,12 @@ async def get_settings():
 async def update_settings(settings: SettingsUpdate):
     """Update application settings"""
     logger.debug(f"Updating settings: {settings}")
-    
+
     if settings.theme not in ("dark", "light"):
         raise HTTPException(status_code=400, detail="theme must be 'dark' or 'light'")
 
     db = get_db()
     try:
-        # Batch insert all settings in a single operation
         await db.executemany(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             [
@@ -55,7 +65,7 @@ async def update_settings(settings: SettingsUpdate):
             theme=settings.theme,
             confetti_enabled=settings.confetti_enabled,
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to update settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to update settings")
@@ -64,9 +74,13 @@ async def update_settings(settings: SettingsUpdate):
 @router.get("/stats", response_model=dict)
 async def get_journal_stats():
     """Get journal statistics by month"""
+    now = time.monotonic()
+    cached = _stats_cache.get("data")
+    if cached and (now - _stats_cache.get("ts", 0)) < _STATS_CACHE_TTL:
+        return cached
+
     db = get_db()
     try:
-        # Query entries grouped by month
         cursor = await db.execute("""
             SELECT
                 substr(created_at, 1, 7) as month,
@@ -77,7 +91,6 @@ async def get_journal_stats():
         """)
         rows = await cursor.fetchall()
 
-        # Per-day counts for heatmap
         cursor = await db.execute("""
             SELECT
                 substr(created_at, 1, 10) as day,
@@ -88,7 +101,6 @@ async def get_journal_stats():
         """)
         day_rows = await cursor.fetchall()
 
-        # Top 30 tags
         cursor = await db.execute("""
             SELECT t.name as tag, COUNT(*) as count
             FROM entry_tags et
@@ -99,10 +111,9 @@ async def get_journal_stats():
         """)
         tag_rows = await cursor.fetchall()
 
-        # Streak calculation — walk backwards from today over per-day set
+        # Streak calculation — use UTC date to stay consistent with server timestamps
         day_set = {r["day"] for r in day_rows}
-        from datetime import date, timedelta
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         current_streak = 0
         check = today
         while check.isoformat() in day_set:
@@ -133,7 +144,10 @@ async def get_journal_stats():
             "longest_streak": longest_streak,
         }
 
+        _stats_cache["data"] = stats
+        _stats_cache["ts"] = now
         return stats
+
     except Exception as e:
         logger.error(f"Failed to get journal stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to get journal stats")

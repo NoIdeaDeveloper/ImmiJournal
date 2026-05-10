@@ -98,7 +98,7 @@ export async function renderFeed(container) {
 
             // Streak pill
             if (stats && stats.current_streak > 0) {
-                const label = stats.current_streak === 1 ? "day streak" : "day streak";
+                const label = stats.current_streak === 1 ? "day streak" : "days streak";
                 streakPill.textContent = `\uD83D\uDD25 ${stats.current_streak} ${label}`;
                 streakPill.style.display = "inline-flex";
                 if (stats.current_streak >= 7) streakPill.classList.add("streak-pill--hot");

@@ -2,8 +2,11 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from backend.auth import require_auth
+from backend.config import DATABASE_PATH
 from backend.database import get_db
 from backend import backup as backup_module
 from backend.models import (
@@ -124,6 +127,15 @@ async def list_entries(
     tag: str = Query(None, description="Filter entries by tag"),
 ):
     logger.debug(f"Listing entries - page: {page}, page_size: {page_size}, date_from: {date_from}, date_to: {date_to}")
+
+    # Validate ISO date strings early to return a clean 400 instead of a DB error
+    for param_name, param_val in (("date_from", date_from), ("date_to", date_to)):
+        if param_val:
+            try:
+                datetime.fromisoformat(param_val)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid {param_name}: must be an ISO date string (e.g. 2024-01-15)")
+
     db = get_db()
     try:
         offset = (page - 1) * page_size
@@ -223,11 +235,12 @@ async def get_random_entry():
 async def get_entry(entry_id: int):
     db = get_db()
     try:
-        await _verify_entry_exists(db, entry_id)
         cursor = await db.execute(
             "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
         )
         entry = await cursor.fetchone()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
         return await _build_entry_response(db, entry)
     except HTTPException:
         raise
@@ -288,11 +301,12 @@ async def create_entry(data: EntryCreate):
 async def update_entry(entry_id: int, data: EntryUpdate):
     db = get_db()
     try:
-        await _verify_entry_exists(db, entry_id)
         cursor = await db.execute(
             "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
         )
         entry = await cursor.fetchone()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
 
         now = datetime.now(timezone.utc).isoformat()
         new_title = data.title if data.title is not None else entry["title"]
@@ -448,13 +462,22 @@ async def delete_entry(entry_id: int):
 
 
 @router.get("/tags")
-async def list_tags():
-    """Return all distinct tags used across journal entries."""
+async def list_tags(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(200, ge=1, le=500),
+):
+    """Return distinct tags used across journal entries, paginated."""
     db = get_db()
     try:
-        cursor = await db.execute("SELECT name FROM tags ORDER BY name COLLATE NOCASE")
+        offset = (page - 1) * page_size
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM tags")
+        total = (await cursor.fetchone())["cnt"]
+        cursor = await db.execute(
+            "SELECT name FROM tags ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?",
+            (page_size, offset),
+        )
         rows = await cursor.fetchall()
-        return {"tags": [r["name"] for r in rows]}
+        return {"tags": [r["name"] for r in rows], "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         logger.error(f"Failed to list tags: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to list tags")
@@ -525,50 +548,80 @@ async def get_all_linked_asset_ids():
 
 @router.get("/export")
 async def export_journal():
-    """Export all journal entries as a downloadable JSON file."""
+    """Export all journal entries as a downloadable JSON file, streamed in chunks."""
     db = get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM journal_entries ORDER BY created_at ASC")
-        entry_rows = await cursor.fetchall()
-        entries = await _build_entries_response(db, entry_rows)
-    except Exception as e:
-        logger.error(f"Failed to export journal: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to export journal")
-
-    export_data = {
-        "version": "1",
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "entries": [
-            {
-                "title": e.title,
-                "summary": e.summary,
-                "body": e.body,
-                "tags": e.tags,
-                "created_at": e.created_at,
-                "updated_at": e.updated_at,
-                "immich_asset_ids": e.immich_asset_ids,
-            }
-            for e in entries
-        ],
-    }
-
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     filename = f"immijournal-{date_str}.json"
-    content = json.dumps(export_data, indent=2)
+    exported_at = datetime.now(timezone.utc).isoformat()
+
+    async def generate():
+        yield f'{{"version":"1","exported_at":"{exported_at}","entries":['
+        first = True
+        page_size = 100
+        offset = 0
+        try:
+            while True:
+                cursor = await db.execute(
+                    "SELECT * FROM journal_entries ORDER BY created_at ASC LIMIT ? OFFSET ?",
+                    (page_size, offset),
+                )
+                rows = await cursor.fetchall()
+                if not rows:
+                    break
+                entries = await _build_entries_response(db, rows)
+                for e in entries:
+                    chunk = json.dumps({
+                        "title": e.title,
+                        "summary": e.summary,
+                        "body": e.body,
+                        "tags": e.tags,
+                        "created_at": e.created_at,
+                        "updated_at": e.updated_at,
+                        "immich_asset_ids": e.immich_asset_ids,
+                    })
+                    yield ("" if first else ",") + chunk
+                    first = False
+                offset += page_size
+                if len(rows) < page_size:
+                    break
+        except Exception as e:
+            logger.error(f"Failed during export streaming: {e}", exc_info=True)
+        yield "]}"
+
     return StreamingResponse(
-        iter([content]),
+        generate(),
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
-@router.get("/backups")
+@router.get("/backups", dependencies=[Depends(require_auth)])
 async def list_backups():
     """List all database backups."""
     return {"backups": backup_module.list_backups()}
 
 
-@router.post("/backup")
+@router.get("/backups/{filename}", dependencies=[Depends(require_auth)])
+async def download_backup(filename: str):
+    """Download a specific database backup file."""
+    backup_dir = Path(DATABASE_PATH).parent / "backups"
+    # Sanitize: only allow the bare filename, no path traversal
+    safe_name = Path(filename).name
+    backup_path = backup_dir / safe_name
+    if not backup_path.exists() or not backup_path.is_file():
+        raise HTTPException(status_code=404, detail="Backup not found")
+    return FileResponse(
+        path=str(backup_path),
+        filename=safe_name,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
+@router.post("/backup", dependencies=[Depends(require_auth)])
 async def trigger_backup():
     """Trigger an immediate database backup."""
     try:
@@ -577,6 +630,10 @@ async def trigger_backup():
     except Exception as e:
         logger.error(f"Backup failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
+
+
+_IMPORT_BATCH_SIZE = 50
+_IMPORT_MAX_ENTRIES = 1000
 
 
 @router.post("/import")
@@ -589,45 +646,57 @@ async def import_journal(data: dict):
     if not isinstance(entries_data, list):
         raise HTTPException(status_code=400, detail="Invalid export format")
 
+    if len(entries_data) > _IMPORT_MAX_ENTRIES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many entries: max {_IMPORT_MAX_ENTRIES} per import. Split into smaller files.",
+        )
+
     imported = 0
     errors = []
-
     db = get_db()
-    for i, entry in enumerate(entries_data):
+
+    # Process in batches so a large import doesn't hold a single huge transaction
+    # Note: asset IDs are not validated against Immich here; orphaned references
+    # will simply show broken images until the matching asset exists in Immich.
+    for batch_start in range(0, len(entries_data), _IMPORT_BATCH_SIZE):
+        batch = entries_data[batch_start: batch_start + _IMPORT_BATCH_SIZE]
+        batch_imported = 0
         try:
-            title = entry.get("title", "")
-            summary = entry.get("summary", "")
-            body = entry.get("body", "")
-            tags = entry.get("tags", "")
-            asset_ids = entry.get("immich_asset_ids", [])
-            created_at = entry.get("created_at") or datetime.now(timezone.utc).isoformat()
-            updated_at = entry.get("updated_at") or created_at
+            for i, entry in enumerate(batch, start=batch_start):
+                try:
+                    title = entry.get("title", "")
+                    summary = entry.get("summary", "")
+                    body = entry.get("body", "")
+                    tags = entry.get("tags", "")
+                    asset_ids = entry.get("immich_asset_ids", [])
+                    created_at = entry.get("created_at") or datetime.now(timezone.utc).isoformat()
+                    updated_at = entry.get("updated_at") or created_at
 
-            if not body or not asset_ids:
-                errors.append(f"Entry {i}: missing body or asset IDs")
-                continue
+                    if not body or not asset_ids:
+                        errors.append(f"Entry {i}: missing body or asset IDs")
+                        continue
 
-            cursor = await db.execute(
-                "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (title, summary, body, tags, created_at, updated_at),
-            )
-            entry_id = cursor.lastrowid
+                    cursor = await db.execute(
+                        "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (title, summary, body, tags, created_at, updated_at),
+                    )
+                    entry_id = cursor.lastrowid
 
-            await db.executemany(
-                "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-                [(entry_id, asset_id, position) for position, asset_id in enumerate(asset_ids)]
-            )
+                    await db.executemany(
+                        "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                        [(entry_id, asset_id, pos) for pos, asset_id in enumerate(asset_ids)],
+                    )
 
-            await _sync_tags(db, entry_id, tags)
+                    await _sync_tags(db, entry_id, tags)
+                    batch_imported += 1
+                except Exception as e:
+                    errors.append(f"Entry {i}: {str(e)}")
 
-            imported += 1
+            await db.commit()
+            imported += batch_imported
         except Exception as e:
-            errors.append(f"Entry {i}: {str(e)}")
-
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        return {"imported": 0, "errors": [f"Failed to commit: {str(e)}"]}
+            await db.rollback()
+            errors.append(f"Batch starting at entry {batch_start} failed to commit: {str(e)}")
 
     return {"imported": imported, "errors": errors}

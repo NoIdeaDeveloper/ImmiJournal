@@ -66,8 +66,14 @@ async def get_asset_thumbnail(asset_id: str) -> tuple[bytes, str]:
 
 
 async def get_asset_preview(asset_id: str) -> tuple[bytes, str]:
+    """Fetch a high-quality preview image. Uses the dedicated /preview endpoint
+    introduced in Immich v1.92+; falls back to thumbnail with size=preview for
+    older server versions."""
     client = _get_client()
-    response = await client.get(f"/assets/{asset_id}/thumbnail", params={"size": "preview"})
+    response = await client.get(f"/assets/{asset_id}/preview")
+    if response.status_code == 404:
+        # Older Immich versions — fall back to thumbnail endpoint with size param
+        response = await client.get(f"/assets/{asset_id}/thumbnail", params={"size": "preview"})
     response.raise_for_status()
     content_type = response.headers.get("content-type", "image/jpeg")
     return response.content, content_type

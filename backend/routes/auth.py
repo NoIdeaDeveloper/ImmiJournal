@@ -4,7 +4,7 @@ from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Response, Request
 from pydantic import BaseModel
 
-from backend.config import APP_PASSWORD, SECURE_COOKIES
+from backend.config import APP_PASSWORD, APP_PASSWORD_HASH, SECURE_COOKIES, hash_password
 from backend.auth import SESSION_COOKIE, SESSION_TTL_SECONDS, create_session, delete_session
 
 router = APIRouter()
@@ -41,7 +41,8 @@ async def login(body: LoginRequest, response: Response, request: Request):
         return {"ok": True}  # Auth disabled — always succeed
     ip = request.client.host if request.client else "unknown"
     _check_rate_limit(ip)
-    if not hmac.compare_digest(body.password, APP_PASSWORD):
+    submitted_hash = hash_password(body.password)
+    if not hmac.compare_digest(submitted_hash, APP_PASSWORD_HASH):
         _failed_attempts[ip].append(time.time())
         raise HTTPException(status_code=401, detail="Incorrect password")
     # Clear failed attempts on successful login

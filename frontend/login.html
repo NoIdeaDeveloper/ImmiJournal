@@ -73,10 +73,23 @@
             margin-top: 0.75rem;
             display: none;
         }
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.35rem 0.6rem;
+            cursor: pointer;
+            font-size: 1rem;
+            color: var(--text);
+        }
     </style>
 </head>
 <body>
     <script>document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";</script>
+    <button class="theme-toggle" id="theme-btn" title="Toggle theme" aria-label="Toggle dark/light theme">🌙</button>
     <div class="login-card">
         <h1>ImmiJournal</h1>
         <p>Enter your password to continue.</p>
@@ -88,6 +101,19 @@
         </form>
     </div>
     <script>
+        (function () {
+            const btn = document.getElementById('theme-btn');
+            function applyTheme(theme) {
+                document.documentElement.dataset.theme = theme;
+                btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+                localStorage.setItem('theme', theme);
+            }
+            applyTheme(localStorage.getItem('theme') || 'dark');
+            btn.addEventListener('click', () => {
+                applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+            });
+        })();
+
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submit-btn');

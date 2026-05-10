@@ -31,12 +31,23 @@ export function renderMarkdown(md) {
         .replace(/\*(.+?)\*/g, "<em>$1</em>")
         // Inline code
         .replace(/`([^`]+)`/g, "<code>$1</code>")
-        // Links [text](url) — only allow http/https
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        // Links [text](url) — only allow http/https, no spaces in URL
+        .replace(/\[([^\]]+)\]\((https?:\/\/\S+?)\)/g, (_, text, url) => {
+            try {
+                new URL(url); // Validates the URL; throws on malformed input
+                return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+            } catch {
+                return text; // Render just the link text if URL is invalid
+            }
+        })
         // Horizontal rule
         .replace(/^---$/gm, "<hr>")
+        // Ordered lists: lines like "1. item"
+        .replace(/^\d+\. (.+)$/gm, "<oli>$1</oli>")
         // Unordered lists
         .replace(/^\s*[-*] (.+)$/gm, "<li>$1</li>")
+        // Wrap consecutive <oli> in <ol>
+        .replace(/(<oli>.*<\/oli>\n?)+/g, (match) => `<ol>${match.replace(/<\/?oli>/g, (m) => m.replace("oli", "li"))}</ol>`)
         // Wrap consecutive <li> in <ul>
         .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
 
@@ -58,8 +69,9 @@ export function renderMarkdown(md) {
 
 /** Returns word count and estimated reading time for a string. */
 export function wordStats(text) {
-    if (!text) return { words: 0, readingTime: "< 1 min read" };
+    if (!text) return { words: 0, readingTime: "" };
     const words = text.trim().split(/\s+/).filter(Boolean).length;
+    if (words === 0) return { words: 0, readingTime: "" };
     const minutes = Math.ceil(words / 200); // ~200 wpm average
     const readingTime = minutes <= 1 ? "< 1 min read" : `${minutes} min read`;
     return { words, readingTime };

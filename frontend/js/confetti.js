@@ -12,8 +12,12 @@ export function launchConfetti() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
+    // Pull theme-aware accent color; fall back to warm defaults if unavailable
+    const style = getComputedStyle(document.documentElement);
+    const accent = style.getPropertyValue("--accent").trim() || "#c9a870";
+    const accentAlt = style.getPropertyValue("--accent-alt").trim() || "#7ec8a0";
     const COLORS = [
-        "#c9a870", "#e8e0d0", "#7ec8a0", "#6aafd4",
+        accent, accentAlt, "#e8e0d0", "#6aafd4",
         "#d47f8a", "#a78bd4", "#f0c04a", "#6ed4c8",
     ];
 

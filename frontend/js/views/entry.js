@@ -185,8 +185,9 @@ function setupAutoSlidingGallery(photosContainer, autoSlide = true) {
         }
         photosContainer._cleanupGallery = cleanup;
 
-        // Cleanup on real page unload or SPA hash navigation
-        window.addEventListener("beforeunload", cleanup);
+        // Cleanup on real page unload or SPA hash navigation.
+        // Use { once: true } so the listener removes itself after firing once.
+        window.addEventListener("beforeunload", cleanup, { once: true });
         window.addEventListener("hashchange", cleanup, { once: true });
         
     } catch (error) {
@@ -393,11 +394,26 @@ function showLightbox(srcs, startIndex = 0) {
     const img = lightbox.querySelector("img");
     const counterEl = lightbox.querySelector("#lb-current");
 
+    function preloadAdjacent(index) {
+        const next = (index + 1) % total;
+        const prev = (index - 1 + total) % total;
+        [next, prev].forEach((i) => {
+            if (i !== index) {
+                const preload = new Image();
+                preload.src = srcs[i];
+            }
+        });
+    }
+
     function goTo(index) {
         current = (index + total) % total;
         img.src = srcs[current];
         if (counterEl) counterEl.textContent = current + 1;
+        if (total > 1) preloadAdjacent(current);
     }
+
+    // Preload neighbours of the initial image
+    if (total > 1) preloadAdjacent(current);
 
     function close() {
         lightbox.remove();

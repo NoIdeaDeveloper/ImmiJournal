@@ -1,3 +1,5 @@
+import os
+import tempfile
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 import httpx
@@ -12,13 +14,19 @@ from backend.config import IMMICH_BASE_URL
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Cache configuration
-CACHE_DIR = "/tmp/immijournal_cache"
+# Cache configuration — directory is configurable via CACHE_DIR env var
+CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "immijournal_cache"))
 CACHE_SIZE_LIMIT_MB = 500  # 500MB cache limit
 CACHE_TTL_SECONDS = 86400  # 24 hours
 
 # Ensure cache directory exists
 Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+
+# Lock to prevent concurrent cache cleanup runs
+_cache_cleanup_lock = asyncio.Lock()
+
+# Module-level cache size tracker (updated by cleanup; exposed to health endpoint)
+_cache_size_mb: float = 0.0
 
 
 def _raise_immich_error(e: Exception) -> None:
@@ -35,7 +43,13 @@ async def schedule_cache_cleanup():
     """Background task: run cache cleanup every hour."""
     while True:
         await asyncio.sleep(3600)
-        await asyncio.to_thread(cleanup_cache_if_needed)
+        async with _cache_cleanup_lock:
+            await asyncio.to_thread(cleanup_cache_if_needed)
+
+
+def get_cache_size_mb() -> float:
+    """Return the last-measured cache size in MB (updated by cleanup)."""
+    return _cache_size_mb
 
 
 def get_cache_path(asset_id: str, variant: str) -> Path:
@@ -47,6 +61,7 @@ def get_cache_path(asset_id: str, variant: str) -> Path:
 
 def cleanup_cache_if_needed():
     """Remove oldest cache files if the cache directory exceeds the size limit."""
+    global _cache_size_mb
     try:
         total_size = 0
         cache_files = []
@@ -61,6 +76,7 @@ def cleanup_cache_if_needed():
                 continue
 
         total_size_mb = total_size / (1024 * 1024)
+        _cache_size_mb = total_size_mb
 
         if total_size_mb > CACHE_SIZE_LIMIT_MB:
             logger.warning(f"Cache size {total_size_mb:.1f}MB exceeds limit, cleaning up")
@@ -76,18 +92,26 @@ def cleanup_cache_if_needed():
                     logger.warning(f"Failed to delete cache file {file}: {e}")
                     continue
 
-            logger.info(f"Cache cleaned. New size: {total_size / (1024 * 1024):.1f}MB")
+            _cache_size_mb = total_size / (1024 * 1024)
+            logger.info(f"Cache cleaned. New size: {_cache_size_mb:.1f}MB")
 
     except Exception as e:
         logger.error(f"Cache cleanup failed: {e}", exc_info=True)
+
+
+def _content_type_path(cache_path: Path) -> Path:
+    """Return the sidecar path used to persist the content-type alongside cached bytes."""
+    return cache_path.with_suffix(cache_path.suffix + ".ct")
 
 
 async def get_cached_image(asset_id: str, variant: str, fetcher) -> tuple[bytes, str]:
     """
     Return image bytes + content-type for an asset variant, using a disk cache.
     `fetcher` is a coroutine that fetches (bytes, content_type) from Immich when needed.
+    The real content-type is stored in a sidecar file so cache hits return the correct type.
     """
     cache_path = get_cache_path(asset_id, variant)
+    ct_path = _content_type_path(cache_path)
 
     # Serve from cache if fresh
     if cache_path.exists():
@@ -95,7 +119,8 @@ async def get_cached_image(asset_id: str, variant: str, fetcher) -> tuple[bytes,
         if cache_age < CACHE_TTL_SECONDS:
             logger.debug(f"Cache hit for {asset_id}/{variant} (age {cache_age:.0f}s)")
             try:
-                return cache_path.read_bytes(), _cached_content_type(variant)
+                content_type = ct_path.read_text().strip() if ct_path.exists() else _fallback_content_type(variant)
+                return cache_path.read_bytes(), content_type
             except Exception as e:
                 logger.warning(f"Cache read failed for {asset_id}/{variant}: {e}")
 
@@ -107,18 +132,17 @@ async def get_cached_image(asset_id: str, variant: str, fetcher) -> tuple[bytes,
 
     try:
         cache_path.write_bytes(image_bytes)
+        ct_path.write_text(content_type)
     except Exception as e:
         logger.warning(f"Failed to write cache for {asset_id}/{variant}: {e}")
 
     return image_bytes, content_type
 
 
-def _cached_content_type(variant: str) -> str:
-    """Guess the content-type to serve from cache based on variant name."""
-    # Immich thumbnails and previews are always JPEG
+def _fallback_content_type(variant: str) -> str:
+    """Fallback content-type when no sidecar file exists."""
     if variant in ("thumb", "preview"):
         return "image/jpeg"
-    # Originals vary; we don't convert them, so we can't guarantee the type
     return "application/octet-stream"
 
 
@@ -156,49 +180,27 @@ async def get_asset_detail(asset_id: str):
         _raise_immich_error(e)
 
 
-@router.get("/assets/{asset_id}/thumbnail")
-async def get_thumbnail(asset_id: str):
-    image_bytes, content_type = await get_cached_image(
-        asset_id, "thumb",
-        lambda: immich_client.get_asset_thumbnail(asset_id),
-    )
+async def _image_response(asset_id: str, variant: str, fetcher) -> Response:
+    image_bytes, content_type = await get_cached_image(asset_id, variant, fetcher)
     return Response(
         content=image_bytes,
         media_type=content_type,
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@router.get("/assets/{asset_id}/thumbnail")
+async def get_thumbnail(asset_id: str):
+    return await _image_response(asset_id, "thumb", lambda: immich_client.get_asset_thumbnail(asset_id))
 
 
 @router.get("/assets/{asset_id}/preview")
 async def get_preview(asset_id: str):
-    """
-    Returns Immich's high-quality preview image for an asset.
-    Immich generates browser-compatible JPEG previews for all formats
-    including HEIC, DNG, and RAW files.
-    """
-    image_bytes, content_type = await get_cached_image(
-        asset_id, "preview",
-        lambda: immich_client.get_asset_preview(asset_id),
-    )
-    return Response(
-        content=image_bytes,
-        media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    """Returns Immich's high-quality preview; browser-compatible JPEG for HEIC/DNG/RAW."""
+    return await _image_response(asset_id, "preview", lambda: immich_client.get_asset_preview(asset_id))
 
 
 @router.get("/assets/{asset_id}/original")
 async def get_original(asset_id: str):
-    """
-    Returns the raw original file from Immich. May be an unsupported browser format.
-    Use /preview for display purposes.
-    """
-    image_bytes, content_type = await get_cached_image(
-        asset_id, "original",
-        lambda: immich_client.get_asset_original(asset_id),
-    )
-    return Response(
-        content=image_bytes,
-        media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    """Returns the raw original file. Use /preview for display — may be an unsupported browser format."""
+    return await _image_response(asset_id, "original", lambda: immich_client.get_asset_original(asset_id))

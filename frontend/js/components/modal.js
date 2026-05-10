@@ -31,11 +31,19 @@ function toDateInputValue(isoString) {
     return isoString.slice(0, 10);
 }
 
-/** Convert YYYY-MM-DD from date input to ISO string at local midnight */
+/** Convert YYYY-MM-DD from date input to ISO string at UTC midnight.
+ *  Uses UTC so the stored timestamp matches the displayed date regardless of
+ *  the user's local timezone.
+ */
 function dateInputToISO(dateStr) {
     if (!dateStr) return new Date().toISOString();
     const [year, month, day] = dateStr.split("-").map(Number);
-    return new Date(year, month - 1, day).toISOString();
+    if (
+        !year || month < 1 || month > 12 || day < 1 || day > 31
+    ) {
+        return new Date().toISOString();
+    }
+    return new Date(Date.UTC(year, month - 1, day)).toISOString();
 }
 
 export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = null) {

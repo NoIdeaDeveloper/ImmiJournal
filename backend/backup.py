@@ -20,6 +20,11 @@ BACKUP_KEEP_COUNT = 7  # Number of daily backups to retain
 
 
 def _backup_dir() -> Path:
+    # Allow a separate backup location via BACKUP_PATH env var so backups can
+    # be stored on a different volume from the main database.
+    custom = os.environ.get("BACKUP_PATH")
+    if custom:
+        return Path(custom)
     return Path(DATABASE_PATH).parent / "backups"
 
 

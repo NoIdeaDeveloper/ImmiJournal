@@ -1,23 +1,25 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
+
+BODY_MAX_LENGTH = 100_000  # ~100k characters (~50k words)
 
 
 class EntryCreate(BaseModel):
     immich_asset_ids: list[str]
-    title: str = ""
-    summary: str = ""
-    body: str
-    tags: str = ""  # Comma-separated tag list e.g. "travel,family"
-    created_at: Optional[str] = None  # If provided, overrides the auto-generated timestamp
+    title: str = Field(default="", max_length=500)
+    summary: str = Field(default="", max_length=500)
+    body: str = Field(..., min_length=1, max_length=BODY_MAX_LENGTH)
+    tags: str = Field(default="", max_length=1000)
+    created_at: Optional[str] = None
 
 
 class EntryUpdate(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    body: Optional[str] = None
-    tags: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=500)
+    summary: Optional[str] = Field(default=None, max_length=500)
+    body: Optional[str] = Field(default=None, min_length=1, max_length=BODY_MAX_LENGTH)
+    tags: Optional[str] = Field(default=None, max_length=1000)
     immich_asset_ids: Optional[list[str]] = None
-    created_at: Optional[str] = None  # Allow backdating / changing the publish date
+    created_at: Optional[str] = None
 
 
 class EntryResponse(BaseModel):
@@ -53,6 +55,6 @@ class SettingsResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    auto_slide_gallery: bool
+    auto_slide_gallery: bool = True
     theme: str = "dark"
     confetti_enabled: bool = True

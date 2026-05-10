@@ -11,7 +11,7 @@ COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY entrypoint.sh /entrypoint.sh
 
-RUN mkdir -p /data && adduser --disabled-password --gecos "" appuser && chmod +x /entrypoint.sh
+RUN mkdir -p /data && chmod +x /entrypoint.sh
 
 EXPOSE 8000
 

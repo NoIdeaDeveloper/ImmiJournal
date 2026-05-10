@@ -178,6 +178,12 @@ git pull
 docker compose up -d --build
 ```
 
+> **Upgrading from an earlier version?** If you previously used this app under the "Thoughtful Frame" name, your database may be named `thoughtful_frame.db`. The new default is `immijournal.db`. Either rename the file:
+> ```bash
+> mv /mnt/user/appdata/immijournal/thoughtful_frame.db /mnt/user/appdata/immijournal/immijournal.db
+> ```
+> or add `DATABASE_PATH=/data/thoughtful_frame.db` to your `.env` to keep the old name.
+
 ---
 
 ## 🔧 Troubleshooting
