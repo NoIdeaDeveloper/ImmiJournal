@@ -87,6 +87,7 @@ MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _write_rate: dict[str, list[float]] = defaultdict(list)
 _WRITE_RATE_WINDOW = 60
 _WRITE_RATE_MAX = 60
+_WRITE_RATE_MAX_KEYS = 10000
 
 
 def _check_write_rate(ip: str) -> bool:
@@ -98,13 +99,26 @@ def _check_write_rate(ip: str) -> bool:
         _write_rate.pop(ip, None)
     if len(recent) >= _WRITE_RATE_MAX:
         return False
-    _write_rate.setdefault(ip, []).append(now)
+    _write_rate[ip] = recent + [now]
+    # Evict oldest entry if dict grows too large
+    if len(_write_rate) > _WRITE_RATE_MAX_KEYS:
+        oldest_key = next(iter(_write_rate))
+        _write_rate.pop(oldest_key, None)
     return True
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
+
+    # Reject oversized request bodies (10 MB limit)
+    max_body_size = 10 * 1024 * 1024  # 10 MB
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > max_body_size:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Request body too large"},
+        )
 
     # Rate-limit write endpoints before auth check
     if request.method in MUTATION_METHODS and path.startswith("/api/"):
@@ -134,14 +148,17 @@ async def auth_middleware(request: Request, call_next):
             response.headers["Cache-Control"] = "no-store"
 
     # Content-Security-Policy — restrict resource loading to same origin.
-    # 'unsafe-inline' is needed for the inline <style> in login.html.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
-        "connect-src 'self';"
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
     )
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
     return response
 

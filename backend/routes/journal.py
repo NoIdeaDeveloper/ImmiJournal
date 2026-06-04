@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from backend.auth import require_auth
-from backend.config import DATABASE_PATH
 from backend.database import get_db
 from backend import backup as backup_module
+from backend.routes.settings import invalidate_stats_cache
 from backend.models import (
     EntryCreate,
     EntryUpdate,
@@ -206,11 +206,15 @@ async def get_entries_for_asset(asset_id: str):
 async def on_this_day():
     db = get_db()
     try:
+        today = datetime.now(timezone.utc)
+        mm_dd = today.strftime("%m-%d")
+        year = str(today.year)
         cursor = await db.execute(
             """SELECT * FROM journal_entries
-               WHERE strftime('%m-%d', created_at) = strftime('%m-%d', 'now')
-               AND strftime('%Y', created_at) < strftime('%Y', 'now')
-               ORDER BY created_at DESC LIMIT 20"""
+               WHERE strftime('%m-%d', created_at) = ?
+               AND strftime('%Y', created_at) < ?
+               ORDER BY created_at DESC LIMIT 20""",
+            (mm_dd, year),
         )
         entries = await cursor.fetchall()
         return await _build_entries_response(db, entries)
@@ -285,6 +289,7 @@ async def create_entry(data: EntryCreate):
 
         # Commit transaction
         await db.commit()
+        invalidate_stats_cache()
 
         # Fetch and return the created entry
         cursor = await db.execute(
@@ -299,7 +304,7 @@ async def create_entry(data: EntryCreate):
         # Rollback on error
         await db.rollback()
         logger.error(f"Failed to create entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create entry: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create entry")
 
 
 
@@ -345,6 +350,7 @@ async def update_entry(entry_id: int, data: EntryUpdate):
 
         # Commit transaction
         await db.commit()
+        invalidate_stats_cache()
 
         cursor = await db.execute(
             "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
@@ -358,7 +364,7 @@ async def update_entry(entry_id: int, data: EntryUpdate):
         # Rollback on error
         await db.rollback()
         logger.error(f"Failed to update entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update entry: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update entry")
 
 
 
@@ -399,7 +405,7 @@ async def add_assets_to_entry(entry_id: int, data: EntryUpdate):
     except Exception as e:
         await db.rollback()
         logger.error(f"Failed to add assets to entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to add assets: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to add assets")
 
 
 @router.post("/entries/{entry_id}/assets/remove")
@@ -448,7 +454,7 @@ async def remove_assets_from_entry(entry_id: int, request: AssetIdsRequest):
     except Exception as e:
         await db.rollback()
         logger.error(f"Failed to remove assets from entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to remove assets: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to remove assets")
 
 
 @router.delete("/entries/{entry_id}")
@@ -458,6 +464,7 @@ async def delete_entry(entry_id: int):
         await _verify_entry_exists(db, entry_id)
         await db.execute("DELETE FROM journal_entries WHERE id = ?", (entry_id,))
         await db.commit()
+        invalidate_stats_cache()
         return {"ok": True}
     except HTTPException:
         raise
@@ -505,14 +512,21 @@ async def search_entries(
         fts_query = '"' + q.replace('"', '""') + '"'
         offset = (page - 1) * page_size
 
+        # Get total count separately (COUNT(*) OVER with LIMIT returns wrong count)
+        count_cursor = await db.execute(
+            """SELECT COUNT(*) as cnt FROM journal_entries
+               WHERE id IN (SELECT rowid FROM journal_entries_fts WHERE journal_entries_fts MATCH ?)""",
+            (fts_query,),
+        )
+        total = (await count_cursor.fetchone())["cnt"]
+
         cursor = await db.execute(
-            """SELECT *, COUNT(*) OVER() AS total_count FROM journal_entries
+            """SELECT * FROM journal_entries
                WHERE id IN (SELECT rowid FROM journal_entries_fts WHERE journal_entries_fts MATCH ?)
                ORDER BY created_at DESC LIMIT ? OFFSET ?""",
             (fts_query, page_size, offset),
         )
         entries = await cursor.fetchall()
-        total = entries[0]["total_count"] if entries else 0
         result = await _build_entries_response(db, entries)
         return EntryListResponse(entries=result, total=total, page=page, page_size=page_size)
     except Exception as e:
@@ -552,7 +566,7 @@ async def get_all_linked_asset_ids():
         raise HTTPException(status_code=500, detail="Failed to get linked asset IDs")
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[Depends(require_auth)])
 async def export_journal():
     """Export all journal entries as a downloadable JSON file, streamed in chunks."""
     db = get_db()
@@ -613,7 +627,7 @@ async def list_backups():
 @router.get("/backups/{filename}", dependencies=[Depends(require_auth)])
 async def download_backup(filename: str):
     """Download a specific database backup file."""
-    backup_dir = Path(DATABASE_PATH).parent / "backups"
+    backup_dir = backup_module._backup_dir()
     # Sanitize: only allow the bare filename, no path traversal
     safe_name = Path(filename).name
     backup_path = backup_dir / safe_name
@@ -635,14 +649,14 @@ async def trigger_backup():
         return {"ok": True, "backup_path": path}
     except Exception as e:
         logger.error(f"Backup failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Backup failed")
 
 
 _IMPORT_BATCH_SIZE = 50
 _IMPORT_MAX_ENTRIES = 1000
 
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_auth)])
 async def import_journal(data: dict):
     """Import journal entries from an exported JSON file."""
     if data.get("version") != "1":
@@ -679,6 +693,18 @@ async def import_journal(data: dict):
                     created_at = entry.get("created_at") or datetime.now(timezone.utc).isoformat()
                     updated_at = entry.get("updated_at") or created_at
 
+                    # Validate date formats
+                    try:
+                        datetime.fromisoformat(created_at)
+                    except (ValueError, TypeError):
+                        errors.append(f"Entry {i}: invalid created_at format")
+                        continue
+                    try:
+                        datetime.fromisoformat(updated_at)
+                    except (ValueError, TypeError):
+                        errors.append(f"Entry {i}: invalid updated_at format")
+                        continue
+
                     if not body or not asset_ids:
                         errors.append(f"Entry {i}: missing body or asset IDs")
                         continue
@@ -701,6 +727,7 @@ async def import_journal(data: dict):
 
             await db.commit()
             imported += batch_imported
+            invalidate_stats_cache()
         except Exception as e:
             await db.rollback()
             errors.append(f"Batch starting at entry {batch_start} failed to commit: {str(e)}")

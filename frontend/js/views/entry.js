@@ -171,14 +171,10 @@ function setupAutoSlidingGallery(photosContainer, autoSlide = true) {
         // Store cleanup function for manual cleanup
         function cleanup() {
             stopSliding();
-            if (controls && controls.className === "gallery-controls") {
-                controls.querySelector(".pause")?.removeEventListener("click", pauseSliding);
-                controls.querySelector(".play")?.removeEventListener("click", resumeSliding);
-                controls.querySelector(".prev")?.removeEventListener("click", prevSlide);
-                controls.querySelector(".next")?.removeEventListener("click", nextSlide);
-                photosContainer.removeEventListener("mouseenter", pauseSliding);
-                photosContainer.removeEventListener("mouseleave", resumeSliding);
-            }
+            // Remove all event listeners by removing the controls element
+            controls?.remove();
+            photosContainer.removeEventListener("mouseenter", pauseSliding);
+            photosContainer.removeEventListener("mouseleave", resumeSliding);
             photosContainer.removeEventListener("wheel", onWheel);
             window.removeEventListener("beforeunload", cleanup);
             window.removeEventListener("hashchange", cleanup);

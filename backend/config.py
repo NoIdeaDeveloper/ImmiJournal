@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import logging
 import os
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +49,39 @@ APP_PASSWORD: str | None = _raw_password
 SECURE_COOKIES: bool = os.environ.get("SECURE_COOKIES", "false").lower() == "true"
 
 _PBKDF2_ITERATIONS = 600_000
-_PBKDF2_SALT = b"immijournal-v1"  # fixed salt; security comes from PBKDF2 iteration count
 
 
 def hash_password(password: str) -> str:
-    """Return a PBKDF2-HMAC-SHA256 hex digest of the plaintext password."""
-    return hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), _PBKDF2_SALT, _PBKDF2_ITERATIONS
-    ).hex()
+    """Return a PBKDF2-HMAC-SHA256 hash with random salt.
+
+    Format: <salt_hex>:<hash_hex>
+    """
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt, _PBKDF2_ITERATIONS
+    )
+    return salt.hex() + ":" + dk.hex()
 
 
-def verify_password(password: str, hashed: str) -> bool:
-    """Constant-time comparison of a plaintext password against a stored hash."""
-    return hmac.compare_digest(hash_password(password), hashed)
+def verify_password(password: str, stored: str) -> bool:
+    """Constant-time comparison of a plaintext password against a stored hash.
+
+    Supports both old format (plain hex) and new format (salt:hex).
+    """
+    if ":" in stored:
+        salt_hex, hash_hex = stored.split(":", 1)
+        salt = bytes.fromhex(salt_hex)
+        dk = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), salt, _PBKDF2_ITERATIONS
+        )
+        return hmac.compare_digest(dk.hex(), hash_hex)
+    else:
+        # Legacy format with fixed salt (for migration)
+        legacy_salt = b"immijournal-v1"
+        dk = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), legacy_salt, _PBKDF2_ITERATIONS
+        )
+        return hmac.compare_digest(dk.hex(), stored)
 
 
 # Hash the password at startup so the plaintext isn't retained beyond config load.

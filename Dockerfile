@@ -1,3 +1,4 @@
+# Pin to a specific digest for reproducible builds: python:3.12-slim@sha256:<digest>
 FROM python:3.12-slim
 
 WORKDIR /app

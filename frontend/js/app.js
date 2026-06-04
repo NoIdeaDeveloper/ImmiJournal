@@ -75,6 +75,8 @@ document.addEventListener("keydown", (e) => {
     if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
     // Skip if a modifier key is held (except Shift for ? help)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Skip if lightbox is open — it handles its own keyboard events
+    if (document.querySelector(".lightbox")) return;
 
     const hash = window.location.hash || "#/";
 

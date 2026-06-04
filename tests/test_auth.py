@@ -55,10 +55,12 @@ async def test_valid_session_allows_access(auth_client):
 
 
 async def test_expired_session_rejected(client, db):
+    from backend.auth import _hash_token
     expired_token = "expired_test_token_abc123"
+    token_hash = _hash_token(expired_token)
     await db.execute(
         "INSERT INTO sessions (token, expires_at) VALUES (?, ?)",
-        (expired_token, time.time() - 1),
+        (token_hash, time.time() - 1),
     )
     await db.commit()
 

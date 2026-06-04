@@ -33,4 +33,6 @@ fi
 # Ensure /data is owned by the configured user
 chown -R appuser:appuser /data
 
-exec gosu appuser uvicorn backend.main:app --host 0.0.0.0 --port 8000 --log-level debug --access-log --use-colors
+# NOTE: workers=1 required — in-memory rate limiter and stats cache are not shared across processes.
+# For multi-worker, switch to Redis-backed rate limiting and caching.
+exec gosu appuser uvicorn backend.main:app --host 0.0.0.0 --port 8000 --log-level info --access-log --use-colors
