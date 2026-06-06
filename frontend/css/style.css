@@ -1270,8 +1270,6 @@ kbd {
     color: var(--danger);
 }
 
-/* ===== Empty State ===== */
-
 /* ===== Error State ===== */
 .error-state {
     text-align: center;
@@ -1560,6 +1558,7 @@ kbd {
     .entry-card-single .entry-card-thumb {
         width: 100%;
         min-height: 200px;
+        border-radius: var(--radius) var(--radius) 0 0;
     }
 
     .photo-grid {

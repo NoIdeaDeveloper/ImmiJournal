@@ -271,7 +271,7 @@ export async function renderEntry(container, entryId, fromHash = "#/") {
                 </div>
                 ${entryTags.length ? `<div class="entry-detail-tags">${entryTags.map(t => `<a class="entry-tag" href="#/?tag=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`).join("")}</div>` : ""}
                 <div class="entry-detail-meta">
-                    <span class="entry-reading-time">${wordStats(entry.body).readingTime} min read</span>
+                    <span class="entry-reading-time">${wordStats(entry.body).readingTime}</span>
                     <span class="entry-word-count">${wordStats(entry.body).words.toLocaleString()} words</span>
                 </div>
                 <div class="entry-detail-body markdown-body">${renderMarkdown(entry.body)}</div>
@@ -309,9 +309,8 @@ export async function renderEntry(container, entryId, fromHash = "#/") {
         if (retryBtn) {
             retryBtn.addEventListener("click", () => {
                 container.querySelectorAll("img[data-asset-id]").forEach(img => {
-                    const src = img.src;
-                    img.src = "";
-                    img.src = src;
+                    const baseSrc = img.src.split("?")[0];
+                    img.src = baseSrc + "?t=" + Date.now();
                 });
             });
         }

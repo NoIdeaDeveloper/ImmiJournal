@@ -154,7 +154,7 @@ function _toggleShortcutHelp() {
     function _escHelp(e) { if (e.key === "Escape") _closeHelp(); }
 
     overlay.addEventListener("click", (e) => { if (e.target === overlay) _closeHelp(); });
-    document.getElementById("shortcut-close")?.addEventListener("click", _closeHelp);
     document.addEventListener("keydown", _escHelp);
     document.body.appendChild(overlay);
+    document.getElementById("shortcut-close")?.addEventListener("click", _closeHelp);
 }

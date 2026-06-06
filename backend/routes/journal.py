@@ -16,6 +16,7 @@ from backend.models import (
     EntryListResponse,
     AssetIdsRequest,
     AssetIdsWithEntriesResponse,
+    TagRename,
 )
 
 router = APIRouter()
@@ -476,12 +477,12 @@ async def list_tags(
         raise HTTPException(status_code=500, detail="Failed to list tags")
 
 
-@router.put("/tags/{tag_name}")
-async def rename_tag(tag_name: str, data: dict):
+@router.put("/tags/{tag_name}", dependencies=[Depends(require_auth)])
+async def rename_tag(tag_name: str, data: TagRename):
     """Rename a tag across all entries."""
-    new_name = data.get("new_name", "").strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="new_name is required")
+    new_name = data.new_name.strip()
+    if "," in new_name:
+        raise HTTPException(status_code=400, detail="Tag name cannot contain commas")
     if new_name.lower() == tag_name.lower():
         raise HTTPException(status_code=400, detail="New name is the same as the old name")
 
@@ -495,6 +496,12 @@ async def rename_tag(tag_name: str, data: dict):
                 raise HTTPException(status_code=404, detail="Tag not found")
             tag_id = tag_row["id"]
 
+            # Capture affected entry IDs BEFORE any merge operations
+            cursor = await db.execute(
+                "SELECT DISTINCT entry_id FROM entry_tags WHERE tag_id = ?", (tag_id,)
+            )
+            affected_ids = [r["entry_id"] for r in await cursor.fetchall()]
+
             # Check if new name already exists
             cursor = await db.execute("SELECT id FROM tags WHERE name = ? COLLATE NOCASE", (new_name,))
             existing = await cursor.fetchone()
@@ -507,16 +514,18 @@ async def rename_tag(tag_name: str, data: dict):
                 )
                 await db.execute("DELETE FROM entry_tags WHERE tag_id = ?", (tag_id,))
                 await db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+                # Also collect entries that had the destination tag
+                cursor = await db.execute(
+                    "SELECT DISTINCT entry_id FROM entry_tags WHERE tag_id = ?", (existing["id"],)
+                )
+                for r in await cursor.fetchall():
+                    if r["entry_id"] not in affected_ids:
+                        affected_ids.append(r["entry_id"])
             else:
                 # Simple rename
                 await db.execute("UPDATE tags SET name = ? WHERE id = ?", (new_name, tag_id))
 
             # Update the tags string in all affected journal_entries
-            cursor = await db.execute(
-                "SELECT DISTINCT entry_id FROM entry_tags WHERE tag_id = ?",
-                (existing["id"] if existing else tag_id,),
-            )
-            affected_ids = [r["entry_id"] for r in await cursor.fetchall()]
             for eid in affected_ids:
                 cursor = await db.execute("SELECT tags FROM journal_entries WHERE id = ?", (eid,))
                 row = await cursor.fetchone()
@@ -546,7 +555,7 @@ async def rename_tag(tag_name: str, data: dict):
             raise HTTPException(status_code=500, detail="Failed to rename tag")
 
 
-@router.delete("/tags/{tag_name}")
+@router.delete("/tags/{tag_name}", dependencies=[Depends(require_auth)])
 async def delete_tag(tag_name: str):
     """Delete a tag and remove it from all entries."""
     db = get_db()

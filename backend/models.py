@@ -70,6 +70,10 @@ class AssetIdsWithEntriesResponse(BaseModel):
     asset_ids_with_entries: list[str]
 
 
+class TagRename(BaseModel):
+    new_name: str = Field(min_length=1, max_length=200)
+
+
 class SettingsResponse(BaseModel):
     auto_slide_gallery: bool = False
     theme: str = "dark"

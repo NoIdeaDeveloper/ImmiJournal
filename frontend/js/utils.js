@@ -55,7 +55,7 @@ export function renderMarkdown(md) {
         .replace(/<\/?oli>/g, (m) => m.replace("oli", "li"));
 
     // Paragraphs: split on blank lines, wrap non-block elements
-    const blockTags = /^<(h[1-6]|pre|ul|hr|blockquote)/;
+    const blockTags = /^<(h[1-6]|pre|ul|ol|hr|blockquote)/;
     html = html
         .split(/\n{2,}/)
         .map((block) => {

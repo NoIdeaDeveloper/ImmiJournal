@@ -196,7 +196,6 @@ export async function renderBrowse(container) {
                 if (_cacheLoaded) {
                     assetsWithEntries = new Set(assetIds.filter(id => linkedAssetIds.has(id)));
                 } else {
-                    console.log("Using fallback per-page check for asset entries");
                     assetsWithEntries = await checkAssetsWithEntries(assetIds);
                 }
 
