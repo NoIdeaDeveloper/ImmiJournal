@@ -61,6 +61,24 @@ export async function fetchTags() {
     return res.json();
 }
 
+export async function renameTag(tagName, newName) {
+    const res = await apiFetch(`${API_BASE}/journal/tags/${encodeURIComponent(tagName)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_name: newName }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function deleteTag(tagName) {
+    const res = await apiFetch(`${API_BASE}/journal/tags/${encodeURIComponent(tagName)}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export async function fetchEntry(entryId) {
     const res = await apiFetch(`${API_BASE}/journal/entries/${entryId}`);
     if (!res.ok) throw new Error(await res.text());

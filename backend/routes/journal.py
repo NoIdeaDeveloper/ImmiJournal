@@ -466,14 +466,128 @@ async def list_tags(
         cursor = await db.execute("SELECT COUNT(*) as cnt FROM tags")
         total = (await cursor.fetchone())["cnt"]
         cursor = await db.execute(
-            "SELECT name FROM tags ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT t.name, COUNT(et.entry_id) as usage_count FROM tags t LEFT JOIN entry_tags et ON t.id = et.tag_id GROUP BY t.id ORDER BY t.name COLLATE NOCASE LIMIT ? OFFSET ?",
             (page_size, offset),
         )
         rows = await cursor.fetchall()
-        return {"tags": [r["name"] for r in rows], "total": total, "page": page, "page_size": page_size}
+        return {"tags": [{"name": r["name"], "usage_count": r["usage_count"]} for r in rows], "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         logger.error(f"Failed to list tags: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to list tags")
+
+
+@router.put("/tags/{tag_name}")
+async def rename_tag(tag_name: str, data: dict):
+    """Rename a tag across all entries."""
+    new_name = data.get("new_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="new_name is required")
+    if new_name.lower() == tag_name.lower():
+        raise HTTPException(status_code=400, detail="New name is the same as the old name")
+
+    db = get_db()
+    async with get_write_lock():
+        try:
+            # Find the existing tag
+            cursor = await db.execute("SELECT id FROM tags WHERE name = ? COLLATE NOCASE", (tag_name,))
+            tag_row = await cursor.fetchone()
+            if not tag_row:
+                raise HTTPException(status_code=404, detail="Tag not found")
+            tag_id = tag_row["id"]
+
+            # Check if new name already exists
+            cursor = await db.execute("SELECT id FROM tags WHERE name = ? COLLATE NOCASE", (new_name,))
+            existing = await cursor.fetchone()
+
+            if existing:
+                # Merge: move all entry_tags from old tag to existing tag, then delete old tag
+                await db.execute(
+                    "UPDATE OR IGNORE entry_tags SET tag_id = ? WHERE tag_id = ?",
+                    (existing["id"], tag_id),
+                )
+                await db.execute("DELETE FROM entry_tags WHERE tag_id = ?", (tag_id,))
+                await db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+            else:
+                # Simple rename
+                await db.execute("UPDATE tags SET name = ? WHERE id = ?", (new_name, tag_id))
+
+            # Update the tags string in all affected journal_entries
+            cursor = await db.execute(
+                "SELECT DISTINCT entry_id FROM entry_tags WHERE tag_id = ?",
+                (existing["id"] if existing else tag_id,),
+            )
+            affected_ids = [r["entry_id"] for r in await cursor.fetchall()]
+            for eid in affected_ids:
+                cursor = await db.execute("SELECT tags FROM journal_entries WHERE id = ?", (eid,))
+                row = await cursor.fetchone()
+                if row and row["tags"]:
+                    parts = [t.strip() for t in row["tags"].split(",") if t.strip()]
+                    parts = [new_name if t.lower() == tag_name.lower() else t for t in parts]
+                    # Deduplicate
+                    seen = set()
+                    deduped = []
+                    for p in parts:
+                        if p.lower() not in seen:
+                            seen.add(p.lower())
+                            deduped.append(p)
+                    await db.execute(
+                        "UPDATE journal_entries SET tags = ? WHERE id = ?",
+                        (", ".join(deduped), eid),
+                    )
+
+            await db.commit()
+            invalidate_stats_cache()
+            return {"ok": True, "old_name": tag_name, "new_name": new_name}
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to rename tag: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to rename tag")
+
+
+@router.delete("/tags/{tag_name}")
+async def delete_tag(tag_name: str):
+    """Delete a tag and remove it from all entries."""
+    db = get_db()
+    async with get_write_lock():
+        try:
+            cursor = await db.execute("SELECT id FROM tags WHERE name = ? COLLATE NOCASE", (tag_name,))
+            tag_row = await cursor.fetchone()
+            if not tag_row:
+                raise HTTPException(status_code=404, detail="Tag not found")
+            tag_id = tag_row["id"]
+
+            # Get affected entries to update their tags string
+            cursor = await db.execute(
+                "SELECT DISTINCT entry_id FROM entry_tags WHERE tag_id = ?", (tag_id,)
+            )
+            affected_ids = [r["entry_id"] for r in await cursor.fetchall()]
+
+            # Remove from join table and tags table
+            await db.execute("DELETE FROM entry_tags WHERE tag_id = ?", (tag_id,))
+            await db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+
+            # Update the tags string in affected entries
+            for eid in affected_ids:
+                cursor = await db.execute("SELECT tags FROM journal_entries WHERE id = ?", (eid,))
+                row = await cursor.fetchone()
+                if row and row["tags"]:
+                    parts = [t.strip() for t in row["tags"].split(",") if t.strip() and t.strip().lower() != tag_name.lower()]
+                    await db.execute(
+                        "UPDATE journal_entries SET tags = ? WHERE id = ?",
+                        (", ".join(parts), eid),
+                    )
+
+            await db.commit()
+            invalidate_stats_cache()
+            return {"ok": True, "deleted": tag_name}
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to delete tag: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to delete tag")
 
 
 @router.get("/search", response_model=EntryListResponse)

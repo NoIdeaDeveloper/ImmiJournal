@@ -46,6 +46,13 @@ export async function renderSettings(container) {
                 <h2 class="settings-section-title">Data</h2>
                 <div class="setting-item">
                     <span class="setting-description">
+                        <strong>Manage Tags</strong>
+                        <span class="setting-subtext">Rename, merge, or delete tags across all entries</span>
+                    </span>
+                    <a href="#/tags" class="btn btn-secondary">Manage</a>
+                </div>
+                <div class="setting-item">
+                    <span class="setting-description">
                         <strong>Export Journal</strong>
                         <span class="setting-subtext">Download all journal entries as a JSON file</span>
                     </span>

@@ -1,5 +1,5 @@
 import { thumbnailUrl, createEntry, updateEntry, fetchTags, fetchAssetDetail } from "../api.js";
-import { escapeHtml, escapeAttr, formatDate, showToast } from "../utils.js";
+import { escapeHtml, escapeAttr, formatDate, showToast, renderMarkdown } from "../utils.js";
 import { showRemoveImagesModal } from "../views/entry.js";
 import { launchConfetti } from "../confetti.js";
 import { invalidateLinkedAssetIdsCache } from "../views/browse.js";
@@ -123,7 +123,13 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
                    value="${isEdit ? escapeAttr(existingEntry.title) : (draft?.title || "")}">
         </div>
         <div class="modal-field modal-field-body">
+            <div class="modal-body-toolbar">
+                <button class="btn btn-small btn-ghost modal-preview-toggle" id="modal-preview-toggle" title="Toggle markdown preview">
+                    <span class="preview-icon">Preview</span>
+                </button>
+            </div>
             <textarea id="modal-entry-body" class="modal-body-textarea" placeholder="Write about this moment..."></textarea>
+            <div id="modal-body-preview" class="modal-body-preview hidden"></div>
             <div id="modal-body-error" class="modal-inline-error hidden">Please write something before saving.</div>
             <p class="modal-field-hint markdown-hint">Markdown supported: **bold**, *italic*, # headings, - lists, [links](url)</p>
         </div>
@@ -218,6 +224,30 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
         textarea.style.height = "auto";
         textarea.style.height = textarea.scrollHeight + "px";
         document.getElementById("modal-body-error").classList.add("hidden");
+        // Update preview if visible
+        if (!_previewHidden) {
+            document.getElementById("modal-body-preview").innerHTML = renderMarkdown(textarea.value);
+        }
+    });
+
+    // Markdown preview toggle
+    let _previewHidden = true;
+    const previewToggle = document.getElementById("modal-preview-toggle");
+    const previewEl = document.getElementById("modal-body-preview");
+    previewToggle.addEventListener("click", () => {
+        _previewHidden = !_previewHidden;
+        if (_previewHidden) {
+            previewEl.classList.add("hidden");
+            textarea.classList.remove("hidden");
+            previewToggle.querySelector(".preview-icon").textContent = "Preview";
+            previewToggle.classList.remove("active");
+        } else {
+            previewEl.innerHTML = renderMarkdown(textarea.value);
+            previewEl.classList.remove("hidden");
+            textarea.classList.add("hidden");
+            previewToggle.querySelector(".preview-icon").textContent = "Edit";
+            previewToggle.classList.add("active");
+        }
     });
 
     // Focus the body textarea — the primary writing surface
@@ -277,7 +307,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
     let autocompleteIndex = -1;
 
     fetchTags().then(data => {
-        allTags = (data.tags || []).map(t => t.toLowerCase());
+        allTags = (data.tags || []).map(t => (typeof t === "string" ? t : t.name).toLowerCase());
     }).catch(() => {});
 
     function showTagAutocomplete() {
@@ -412,6 +442,10 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
         const dateInput = document.getElementById("modal-entry-date").value;
 
         if (!body) {
+            // Switch to edit mode if in preview
+            if (!_previewHidden) {
+                previewToggle.click();
+            }
             document.getElementById("modal-body-error").classList.remove("hidden");
             document.getElementById("modal-entry-body").focus();
             return;

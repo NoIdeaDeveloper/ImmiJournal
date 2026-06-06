@@ -47,7 +47,7 @@ IMMICH_API_KEY: str = os.environ.get("IMMICH_API_KEY", "")
 DATABASE_PATH: str = os.environ.get("DATABASE_PATH", "/data/immijournal.db")
 APP_PASSWORD: str | None = _raw_password
 SECURE_COOKIES: bool = os.environ.get("SECURE_COOKIES", "false").lower() == "true"
-APP_VERSION: str = "1.1.0"
+APP_VERSION: str = "1.2.0"
 
 _PBKDF2_ITERATIONS = 600_000
 

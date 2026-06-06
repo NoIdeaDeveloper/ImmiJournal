@@ -47,6 +47,9 @@ function route() {
     } else if (parts[0] === "stats") {
         document.title = "Statistics — ImmiJournal";
         import("./views/stats.js").then((m) => m.renderStats(contentEl)).catch((e) => _viewError("statistics", e));
+    } else if (parts[0] === "tags") {
+        document.title = "Tag Management — ImmiJournal";
+        import("./views/tags.js").then((m) => m.renderTags(contentEl)).catch((e) => _viewError("tags", e));
     }
 
     // Update active nav link — entry detail is part of the Journal section
@@ -55,7 +58,7 @@ function route() {
         const isActive =
             (view === "feed" && (hash === "#/" || hash === "#" || hash.startsWith("#/entry"))) ||
             (view === "browse" && hash.startsWith("#/browse")) ||
-            (view === "settings" && hash.startsWith("#/settings")) ||
+            (view === "settings" && (hash.startsWith("#/settings") || hash.startsWith("#/tags"))) ||
             (view === "stats" && hash.startsWith("#/stats"));
         link.classList.toggle("active", isActive);
     });

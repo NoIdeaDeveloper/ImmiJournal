@@ -107,7 +107,12 @@ export async function renderFeed(container) {
                     <div class="on-this-day-banner">
                         <span class="on-this-day-title">On this day</span>
                         <div class="on-this-day-list">${links}</div>
+                        <button class="btn btn-small btn-ghost on-this-day-write" id="on-this-day-write-btn">Write about today</button>
                     </div>`;
+                document.getElementById("on-this-day-write-btn")?.addEventListener("click", () => {
+                    const today = new Date().toISOString().slice(0, 10);
+                    showEntryModal([], null, today + "T00:00:00.000Z");
+                });
             } else {
                 onThisDayBanner.innerHTML = "";
             }
