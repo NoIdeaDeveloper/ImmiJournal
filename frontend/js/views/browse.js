@@ -1,4 +1,4 @@
-import { fetchAssets, checkAssetsWithEntries, addAssetsToEntry, fetchEntry, fetchEntriesForAsset, getAllLinkedAssetIds } from "../api.js";
+import { fetchAssets, checkAssetsWithEntries, addAssetsToEntry, fetchEntry, fetchEntriesForAsset, getAllLinkedAssetIds, fetchAlbums, fetchAlbumDetail } from "../api.js";
 import { renderPhotoGrid } from "../components/photoGrid.js";
 import { showEntryModal, showEntryPickerModal } from "../components/modal.js";
 import { escapeHtml, showToast } from "../utils.js";
@@ -84,8 +84,14 @@ export async function renderBrowse(container) {
             ${isAddMode ? `<div class="add-mode-banner">Select photos to add to your entry, then click <strong>Add to Entry</strong>.</div>` : ""}
             <div class="browse-header">
                 <h2 class="browse-title">${isAddMode ? 'Select Photos to Add' : 'Your Photos'}</h2>
-                <button class="btn btn-secondary" id="toggle-select">${isAddMode ? 'Cancel' : 'Select Multiple'}</button>
-                ${isAddMode ? `<button class="btn btn-primary" id="add-to-entry">Add to Entry</button>` : ''}
+                <div class="browse-header-actions">
+                    <button class="btn btn-secondary" id="browse-view-toggle">Albums</button>
+                    <button class="btn btn-secondary" id="toggle-select">${isAddMode ? 'Cancel' : 'Select Multiple'}</button>
+                    ${isAddMode ? `<button class="btn btn-primary" id="add-to-entry">Add to Entry</button>` : ''}
+                </div>
+            </div>
+            <div class="browse-search-bar">
+                <input type="search" id="browse-search" class="feed-search-input" placeholder="Search photos…" autocomplete="off">
             </div>
             <div class="photo-grid" id="photo-grid">
                 ${skeletonGrid(12)}
@@ -102,11 +108,15 @@ export async function renderBrowse(container) {
     const nextBtn = document.getElementById("next-page");
     const toggleBtn = document.getElementById("toggle-select");
     const addToEntryBtn = document.getElementById("add-to-entry");
+    const searchInput = document.getElementById("browse-search");
+    const viewToggleBtn = document.getElementById("browse-view-toggle");
 
     let currentPage = 1;
     const pageSize = 100;
     let isLoading = false;
     let hasMore = true;
+    let currentQuery = null;
+    let isAlbumView = false;
 
     const returnToEntry = () => { window.location.hash = `#/entry/${entryIdForAdding}`; };
 
@@ -170,7 +180,7 @@ export async function renderBrowse(container) {
         gridEl.innerHTML = skeletonGrid(12);
 
         try {
-            const data = await fetchAssets(page, pageSize);
+            const data = await fetchAssets(page, pageSize, currentQuery);
             const assets = extractAssets(data);
 
             gridEl.innerHTML = "";
@@ -255,7 +265,8 @@ export async function renderBrowse(container) {
         if (!isAddMode) {
             document.getElementById("selection-write").addEventListener("click", () => {
                 if (selectedAssetIds.length > 0) {
-                    showEntryModal([...selectedAssetIds]);
+                    const albumTag = gridEl.dataset.albumName || "";
+                    showEntryModal([...selectedAssetIds], null, null, albumTag);
                 }
             });
         }
@@ -301,11 +312,13 @@ export async function renderBrowse(container) {
                     try {
                         const entries = await fetchEntriesForAsset(assetId);
                         if (entries.length === 0) {
-                            showEntryModal([assetId], null, item.dataset.fileCreatedAt || null);
+                            const albumTag = gridEl.dataset.albumName || "";
+                            showEntryModal([assetId], null, item.dataset.fileCreatedAt || null, albumTag);
                         } else if (entries.length === 1) {
                             window.location.hash = `#/entry/${entries[0].id}`;
                         } else {
-                            showEntryPickerModal(assetId, entries);
+                            const albumTag = gridEl.dataset.albumName || "";
+                            showEntryPickerModal(assetId, entries, albumTag);
                         }
                     } catch {
                         showEntryModal([assetId]);
@@ -317,6 +330,137 @@ export async function renderBrowse(container) {
 
     prevBtn.addEventListener("click", () => { if (!prevBtn.disabled) loadPage(currentPage - 1); });
     nextBtn.addEventListener("click", () => { if (!nextBtn.disabled) loadPage(currentPage + 1); });
+
+    // Search photos
+    let searchDebounce = null;
+    searchInput.addEventListener("input", () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => {
+            const newQuery = searchInput.value.trim() || null;
+            if (newQuery === currentQuery) return;
+            currentQuery = newQuery;
+            currentPage = 1;
+            loadPage(1);
+        }, 400);
+    });
+
+    // Album view toggle
+    viewToggleBtn.addEventListener("click", () => {
+        if (isAlbumView) {
+            isAlbumView = false;
+            viewToggleBtn.textContent = "Albums";
+            searchInput.style.display = "";
+            document.querySelector(".browse-title").textContent = "Your Photos";
+            loadPage(1);
+        } else {
+            isAlbumView = true;
+            viewToggleBtn.textContent = "Photos";
+            searchInput.style.display = "none";
+            document.querySelector(".browse-title").textContent = "Albums";
+            loadAlbums();
+        }
+    });
+
+    async function loadAlbums() {
+        if (isLoading) return;
+        isLoading = true;
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        gridEl.innerHTML = skeletonGrid(12);
+
+        try {
+            const data = await fetchAlbums(1, 100);
+            const albums = data.items || data || [];
+            gridEl.innerHTML = "";
+
+            if (albums.length === 0) {
+                gridEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📁</div>
+                        <h2>No albums found</h2>
+                        <p>Create albums in Immich to browse them here.</p>
+                    </div>`;
+            } else {
+                const fragment = document.createDocumentFragment();
+                for (const album of albums) {
+                    const card = document.createElement("button");
+                    card.className = "album-card";
+                    const coverAsset = album.albumThumbnailAssetId || (album.assets && album.assets[0]?.id);
+                    card.innerHTML = `
+                        ${coverAsset ? `<img class="album-card-cover" src="${thumbnailUrl(coverAsset)}" loading="lazy" alt="">` : `<div class="album-card-cover album-card-placeholder">📁</div>`}
+                        <div class="album-card-info">
+                            <span class="album-card-name">${escapeHtml(album.albumName || "Untitled")}</span>
+                            <span class="album-card-count">${album.assetCount || 0} photos</span>
+                        </div>
+                    `;
+                    card.addEventListener("click", () => loadAlbumAssets(album.id, album.albumName));
+                    fragment.appendChild(card);
+                }
+                gridEl.appendChild(fragment);
+            }
+
+            hasMore = false;
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+        } catch (err) {
+            gridEl.innerHTML = `
+                <div class="error-state">
+                    <p>Could not load albums.</p>
+                    <p>${escapeHtml(err.message)}</p>
+                </div>`;
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    async function loadAlbumAssets(albumId, albumName) {
+        if (isLoading) return;
+        isLoading = true;
+        gridEl.innerHTML = skeletonGrid(12);
+
+        try {
+            const album = await fetchAlbumDetail(albumId);
+            const assets = album.assets || [];
+            gridEl.innerHTML = "";
+
+            // Store album name for tag suggestion
+            gridEl.dataset.albumName = albumName || "";
+
+            if (assets.length === 0) {
+                gridEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📷</div>
+                        <h2>Album is empty</h2>
+                        <p>This album has no photos.</p>
+                    </div>`;
+            } else {
+                const assetIds = assets.map(a => a.id);
+                const linkedAssetIds = await getLinkedAssetIds();
+                let assetsWithEntries;
+                if (_cacheLoaded) {
+                    assetsWithEntries = new Set(assetIds.filter(id => linkedAssetIds.has(id)));
+                } else {
+                    assetsWithEntries = await checkAssetsWithEntries(assetIds);
+                }
+
+                // Add album context for tag suggestion
+                gridEl.appendChild(renderPhotoGrid(assets, assetsWithEntries, existingAssetIds));
+                attachGridClickHandlers(gridEl);
+            }
+
+            hasMore = false;
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+        } catch (err) {
+            gridEl.innerHTML = `
+                <div class="error-state">
+                    <p>Could not load album.</p>
+                    <p>${escapeHtml(err.message)}</p>
+                </div>`;
+        } finally {
+            isLoading = false;
+        }
+    }
 
     await loadPage(1);
 }

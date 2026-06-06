@@ -404,11 +404,113 @@ body {
     margin-bottom: 16px;
 }
 
+/* ===== Browse Search & Header ===== */
+.browse-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.browse-search-bar {
+    margin-bottom: 16px;
+}
+
+/* ===== Album Cards ===== */
+.album-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: box-shadow 0.2s, transform 0.2s;
+    text-align: left;
+    padding: 0;
+}
+
+.album-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+.album-card-cover {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+}
+
+.album-card-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    background: var(--bg);
+}
+
+.album-card-info {
+    padding: 12px;
+}
+
+.album-card-name {
+    display: block;
+    font-family: var(--font-serif);
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.album-card-count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* ===== EXIF Tag Suggestions ===== */
+.exif-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.exif-suggestions-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-right: 4px;
+}
+
+.exif-suggestion-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px dashed var(--accent);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.exif-suggestion-pill:hover {
+    background: var(--accent);
+    color: #fff;
+    border-style: solid;
+}
+
 /* ===== Photo Grid ===== */
 .photo-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 8px;
+}
+
+.photo-grid:has(.album-card) {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 }
 
 .photo-grid-item {

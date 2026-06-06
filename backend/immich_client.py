@@ -32,20 +32,23 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
-async def get_assets(page: int = 1, page_size: int | None = None) -> dict:
+async def get_assets(page: int = 1, page_size: int | None = None, query: str | None = None) -> dict:
     if page_size is None:
         page_size = _get_page_size()
-    logger.debug(f"Fetching assets from Immich - page: {page}, page_size: {page_size}")
+    logger.debug(f"Fetching assets from Immich - page: {page}, page_size: {page_size}, query: {query}")
     client = _get_client()
     try:
+        payload = {
+            "page": page,
+            "size": page_size,
+            "type": "IMAGE",
+            "order": "desc",
+        }
+        if query:
+            payload["query"] = query
         response = await client.post(
             "/search/metadata",
-            json={
-                "page": page,
-                "size": page_size,
-                "type": "IMAGE",
-                "order": "desc",
-            },
+            json=payload,
         )
         response.raise_for_status()
         logger.debug(f"Successfully fetched {len(response.json().get('assets', {}).get('items', []))} assets")
@@ -90,3 +93,19 @@ async def get_asset_original(asset_id: str) -> tuple[bytes, str]:
     response.raise_for_status()
     content_type = response.headers.get("content-type", "image/jpeg")
     return response.content, content_type
+
+
+async def get_albums(page: int = 1, page_size: int | None = None) -> dict:
+    if page_size is None:
+        page_size = _get_page_size()
+    client = _get_client()
+    response = await client.get("/albums", params={"page": page, "size": page_size})
+    response.raise_for_status()
+    return response.json()
+
+
+async def get_album_assets(album_id: str) -> dict:
+    client = _get_client()
+    response = await client.get(f"/albums/{album_id}")
+    response.raise_for_status()
+    return response.json()

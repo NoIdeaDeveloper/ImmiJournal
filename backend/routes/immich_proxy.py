@@ -179,10 +179,10 @@ async def get_config():
 
 
 @router.get("/assets")
-async def list_assets(page: int = 1, page_size: int = 50):
+async def list_assets(page: int = 1, page_size: int = 50, query: str = None):
     page_size = min(page_size, 1000)
     try:
-        data = await immich_client.get_assets(page, page_size)
+        data = await immich_client.get_assets(page, page_size, query=query)
 
         # Log a warning if Immich omits total (frontend handles this gracefully via page-size fallback)
         if data and "assets" in data and "items" in data["assets"]:
@@ -190,6 +190,23 @@ async def list_assets(page: int = 1, page_size: int = 50):
                 logger.warning("Immich didn't provide total count; frontend will use page-size fallback")
 
         return data
+    except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+        _raise_immich_error(e)
+
+
+@router.get("/albums")
+async def list_albums(page: int = 1, page_size: int = 50):
+    page_size = min(page_size, 1000)
+    try:
+        return await immich_client.get_albums(page, page_size)
+    except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+        _raise_immich_error(e)
+
+
+@router.get("/albums/{album_id}")
+async def get_album_detail(album_id: str):
+    try:
+        return await immich_client.get_album_assets(album_id)
     except (httpx.ConnectError, httpx.HTTPStatusError) as e:
         _raise_immich_error(e)
 

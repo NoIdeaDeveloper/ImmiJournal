@@ -1,4 +1,4 @@
-import { thumbnailUrl, createEntry, updateEntry, fetchTags } from "../api.js";
+import { thumbnailUrl, createEntry, updateEntry, fetchTags, fetchAssetDetail } from "../api.js";
 import { escapeHtml, escapeAttr, formatDate, showToast } from "../utils.js";
 import { showRemoveImagesModal } from "../views/entry.js";
 import { launchConfetti } from "../confetti.js";
@@ -93,7 +93,7 @@ function dateInputToISO(dateStr) {
     return new Date(Date.UTC(year, month - 1, day)).toISOString();
 }
 
-export function showEntryModal(assetIds = [], existingEntry = null, photoCreatedAt = null) {
+export function showEntryModal(assetIds = [], existingEntry = null, photoCreatedAt = null, albumTag = "") {
     _previousFocus = document.activeElement;
     const isEdit = existingEntry !== null;
     const hasPhotos = assetIds.length > 0;
@@ -101,6 +101,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
 
     // Check for stashed draft (only for new entries without photos)
     const draft = (!isEdit && !hasPhotos) ? loadDraft() : null;
+    const initialTags = isEdit ? (existingEntry.tags || "") : (draft?.tags || (albumTag ? albumTag : ""));
 
     container.innerHTML = `
         <h2 class="modal-title">${isEdit ? "Edit Entry" : (hasPhotos ? "New Entry" : "New Journal Entry")}</h2>
@@ -135,7 +136,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
                 <label for="modal-entry-tags">Tags <span class="modal-field-hint">(comma-separated)</span></label>
                 <div class="tags-input-wrapper">
                     <input type="text" id="modal-entry-tags" placeholder="travel, family, vacation..."
-                           value="${isEdit ? escapeAttr(existingEntry.tags || "") : (draft?.tags || "")}" autocomplete="off">
+                           value="${escapeAttr(initialTags)}" autocomplete="off">
                     <div id="tags-autocomplete" class="tags-autocomplete hidden"></div>
                 </div>
             </div>
@@ -221,6 +222,53 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
 
     // Focus the body textarea — the primary writing surface
     textarea.focus();
+
+    // Fetch EXIF metadata for the first photo (new entries with photos only)
+    if (hasPhotos && !isEdit) {
+        fetchAssetDetail(assetIds[0]).then(asset => {
+            // Pre-fill date from fileCreatedAt if not already set
+            if (asset.fileCreatedAt && !photoCreatedAt) {
+                document.getElementById("modal-entry-date").value = toDateInputValue(asset.fileCreatedAt);
+            }
+
+            // Build EXIF tag suggestions
+            const suggestions = [];
+            if (asset.exifInfo) {
+                if (asset.exifInfo.city) suggestions.push(asset.exifInfo.city);
+                if (asset.exifInfo.state) suggestions.push(asset.exifInfo.state);
+                if (asset.exifInfo.country) suggestions.push(asset.exifInfo.country);
+            }
+            if (asset.people && asset.people.length > 0) {
+                for (const person of asset.people.slice(0, 5)) {
+                    if (person.name) suggestions.push(person.name);
+                }
+            }
+
+            if (suggestions.length > 0) {
+                const sugEl = document.createElement("div");
+                sugEl.className = "exif-suggestions";
+                sugEl.innerHTML = `<span class="exif-suggestions-label">Suggested tags:</span>` +
+                    suggestions.map(s => `<button class="exif-suggestion-pill" data-tag="${escapeAttr(s)}">${escapeHtml(s)}</button>`).join("");
+                tagsInput.parentNode.appendChild(sugEl);
+
+                sugEl.querySelectorAll(".exif-suggestion-pill").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        const tag = btn.dataset.tag;
+                        const current = tagsInput.value.trim();
+                        if (current) {
+                            const existing = current.split(",").map(t => t.trim().toLowerCase());
+                            if (!existing.includes(tag.toLowerCase())) {
+                                tagsInput.value = current + ", " + tag;
+                            }
+                        } else {
+                            tagsInput.value = tag;
+                        }
+                        btn.remove();
+                    });
+                });
+            }
+        }).catch(() => {});
+    }
 
     // Tag autocomplete
     const tagsInput = document.getElementById("modal-entry-tags");
@@ -405,7 +453,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
     });
 }
 
-export function showEntryPickerModal(assetId, entries) {
+export function showEntryPickerModal(assetId, entries, albumTag = "") {
     container.innerHTML = `
         <h2 class="modal-title">Choose an Entry</h2>
         <p style="margin-bottom: 16px; color: var(--text-muted);">This photo belongs to multiple entries. Where would you like to go?</p>
@@ -438,7 +486,7 @@ export function showEntryPickerModal(assetId, entries) {
 
     document.getElementById("picker-new").addEventListener("click", () => {
         closeModal();
-        showEntryModal([assetId]);
+        showEntryModal([assetId], null, null, albumTag);
     });
 
     document.getElementById("picker-cancel").addEventListener("click", closeModal);

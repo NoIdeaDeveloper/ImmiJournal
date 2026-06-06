@@ -9,8 +9,10 @@ async function apiFetch(url, options = {}) {
     return res;
 }
 
-export async function fetchAssets(page = 1, pageSize = 100) {
-    const res = await apiFetch(`${API_BASE}/immich/assets?page=${page}&page_size=${pageSize}`);
+export async function fetchAssets(page = 1, pageSize = 100, query = null) {
+    const params = new URLSearchParams({ page, page_size: pageSize });
+    if (query) params.set("query", query);
+    const res = await apiFetch(`${API_BASE}/immich/assets?${params}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
@@ -186,6 +188,18 @@ export async function importJournal(data) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
     });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchAlbums(page = 1, pageSize = 50) {
+    const res = await apiFetch(`${API_BASE}/immich/albums?page=${page}&page_size=${pageSize}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchAlbumDetail(albumId) {
+    const res = await apiFetch(`${API_BASE}/immich/albums/${albumId}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
