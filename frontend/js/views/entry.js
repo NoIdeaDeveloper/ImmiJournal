@@ -229,6 +229,7 @@ export async function renderEntry(container, entryId, fromHash = "#/") {
             fetchImmichConfig().catch(() => null),
         ]);
         const isMulti = entry.immich_asset_ids.length > 1;
+        const hasPhotos = entry.immich_asset_ids.length > 0;
 
         const totalPhotos = entry.immich_asset_ids.length;
         function photoWrapper(id, index, lazy = true) {
@@ -241,7 +242,9 @@ export async function renderEntry(container, entryId, fromHash = "#/") {
 
         const entryTags = parseTags(entry.tags);
         let photosHtml;
-        if (isMulti) {
+        if (!hasPhotos) {
+            photosHtml = "";
+        } else if (isMulti) {
             photosHtml = `
                 <div class="entry-detail-photos multi">
                     ${entry.immich_asset_ids.map((id, i) => photoWrapper(id, i, i > 0)).join("")}

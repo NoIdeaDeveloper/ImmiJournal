@@ -2,7 +2,7 @@ import { thumbnailUrl } from "../api.js";
 import { formatDate, escapeHtml, parseTags, wordStats } from "../utils.js";
 
 export function renderEntryCard(entry) {
-    if (!entry || !entry.id || !entry.immich_asset_ids || !Array.isArray(entry.immich_asset_ids) || entry.immich_asset_ids.length === 0) {
+    if (!entry || !entry.id || !entry.immich_asset_ids || !Array.isArray(entry.immich_asset_ids)) {
         console.error("Invalid entry data:", entry);
         const errorCard = document.createElement("div");
         errorCard.className = "error-card";
@@ -10,6 +10,7 @@ export function renderEntryCard(entry) {
         return errorCard;
     }
 
+    const hasPhotos = entry.immich_asset_ids.length > 0;
     const isMulti = entry.immich_asset_ids.length > 1;
     const card = document.createElement("a");
     card.href = `#/entry/${entry.id}`;
@@ -40,7 +41,17 @@ export function renderEntryCard(entry) {
         <span class="entry-reading-time">&middot; ${readingTime}</span>
     `;
 
-    if (isMulti) {
+    if (!hasPhotos) {
+        card.classList.add("entry-card-text-only");
+        card.innerHTML = `
+            <div class="entry-card-body">
+                ${safeTitle ? `<h3 class="entry-card-title">${escapeHtml(safeTitle)}</h3>` : ""}
+                <p class="entry-card-text">${previewText}</p>
+                ${tagsHtml}
+                <div class="entry-card-meta">${dateHtml}</div>
+            </div>
+        `;
+    } else if (isMulti) {
         card.innerHTML = `
             <div class="photo-scroll-row">
                 ${entry.immich_asset_ids

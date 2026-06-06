@@ -264,9 +264,6 @@ async def get_entry(entry_id: int):
 @router.post("/entries", response_model=EntryResponse, status_code=201)
 async def create_entry(data: EntryCreate):
     logger.info(f"Creating new entry with {len(data.immich_asset_ids)} assets")
-    if not data.immich_asset_ids:
-        logger.warning("Create entry attempt with no asset IDs")
-        raise HTTPException(status_code=400, detail="At least one asset ID is required")
 
     now = datetime.now(timezone.utc).isoformat()
     created_at = data.created_at if data.created_at else now
@@ -329,18 +326,14 @@ async def update_entry(entry_id: int, data: EntryUpdate):
             )
 
             if data.immich_asset_ids is not None:
-                if not data.immich_asset_ids:
-                    raise HTTPException(
-                        status_code=400, detail="At least one asset ID is required"
-                    )
-
                 await db.execute(
                     "DELETE FROM entry_assets WHERE entry_id = ?", (entry_id,)
                 )
-                await db.executemany(
-                    "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-                    [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
-                )
+                if data.immich_asset_ids:
+                    await db.executemany(
+                        "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                        [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
+                    )
 
             await _sync_tags(db, entry_id, new_tags)
 
@@ -422,14 +415,6 @@ async def remove_assets_from_entry(entry_id: int, request: AssetIdsRequest):
             await _verify_entry_exists(db, entry_id)
 
             placeholders = _sql_placeholders(asset_ids)
-            cursor = await db.execute(
-                f"SELECT COUNT(*) as cnt FROM entry_assets WHERE entry_id = ? AND immich_asset_id NOT IN ({placeholders})",
-                [entry_id, *asset_ids],
-            )
-            row = await cursor.fetchone()
-            if row["cnt"] == 0:
-                raise HTTPException(status_code=400, detail="Cannot remove all assets from an entry")
-
             cursor = await db.execute(
                 f"DELETE FROM entry_assets WHERE entry_id = ? AND immich_asset_id IN ({placeholders})",
                 [entry_id, *asset_ids],
@@ -719,8 +704,8 @@ async def import_journal(data: dict):
                             errors.append(f"Entry {i}: invalid updated_at format")
                             continue
 
-                        if not body or not asset_ids:
-                            errors.append(f"Entry {i}: missing body or asset IDs")
+                        if not body:
+                            errors.append(f"Entry {i}: missing body")
                             continue
 
                         cursor = await db.execute(

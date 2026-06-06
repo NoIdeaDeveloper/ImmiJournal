@@ -67,7 +67,7 @@ export async function renderSettings(container) {
             <div class="settings-section">
                 <h2 class="settings-section-title">About</h2>
                 <p class="settings-about">ImmiJournal - A journaling app for your photos and memories.</p>
-                <p class="settings-version">Version 1.0.0</p>
+                <p class="settings-version" id="app-version">Version 1.1.0</p>
             </div>
             <div class="settings-section">
                 <div class="setting-item">
@@ -83,7 +83,7 @@ export async function renderSettings(container) {
 
     // Track current settings so toggle handlers can send complete payloads
     let currentSettings = {
-        auto_slide_gallery: true,
+        auto_slide_gallery: false,
         theme: localStorage.getItem("theme") || "dark",
         confetti_enabled: true,
     };
@@ -116,13 +116,18 @@ export async function renderSettings(container) {
         const settings = await getSettings();
         currentSettings = { ...currentSettings, ...settings };
 
+        // Update version from API
+        if (settings.version) {
+            document.getElementById("app-version").textContent = `Version ${settings.version}`;
+        }
+
         updateThemeButtons(currentSettings.theme);
 
         document.getElementById("theme-dark").addEventListener("click", () => saveTheme("dark"));
         document.getElementById("theme-light").addEventListener("click", () => saveTheme("light"));
 
         // Auto-slide toggle
-        document.getElementById("auto-slide-toggle").checked = settings.auto_slide_gallery ?? true;
+        document.getElementById("auto-slide-toggle").checked = settings.auto_slide_gallery ?? false;
         document.getElementById("auto-slide-toggle").addEventListener("change", async (e) => {
             const isEnabled = e.target.checked;
             localStorage.setItem("autoSlideEnabled", isEnabled.toString());

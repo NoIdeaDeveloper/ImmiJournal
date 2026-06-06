@@ -3,6 +3,7 @@ from datetime import date, timedelta, timezone, datetime
 from fastapi import APIRouter, HTTPException
 from backend.models import SettingsResponse, SettingsUpdate
 from backend.database import get_db
+from backend.config import APP_VERSION
 import logging
 
 router = APIRouter()
@@ -29,11 +30,11 @@ async def get_settings():
         rows = await cursor.fetchall()
         row_map = {r[0]: r[1] for r in rows}
 
-        auto_slide_gallery = row_map.get("auto_slide_gallery", "true").lower() == "true"
+        auto_slide_gallery = row_map.get("auto_slide_gallery", "false").lower() == "true"
         theme = row_map.get("theme", "dark")
         confetti_enabled = row_map.get("confetti_enabled", "true").lower() == "true"
 
-        return SettingsResponse(auto_slide_gallery=auto_slide_gallery, theme=theme, confetti_enabled=confetti_enabled)
+        return SettingsResponse(auto_slide_gallery=auto_slide_gallery, theme=theme, confetti_enabled=confetti_enabled, version=APP_VERSION)
 
     except Exception as e:
         logger.error(f"Failed to fetch settings: {e}", exc_info=True)
@@ -64,6 +65,7 @@ async def update_settings(settings: SettingsUpdate):
             auto_slide_gallery=settings.auto_slide_gallery,
             theme=settings.theme,
             confetti_enabled=settings.confetti_enabled,
+            version=APP_VERSION,
         )
 
     except Exception as e:

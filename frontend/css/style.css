@@ -252,6 +252,14 @@ body {
     border-radius: var(--radius) 0 0 var(--radius);
 }
 
+.entry-card-text-only {
+    border-left: 3px solid var(--accent);
+}
+
+.entry-card-text-only .entry-card-body {
+    padding: 24px;
+}
+
 .entry-card-body {
     padding: 24px;
     flex: 1;
@@ -1476,6 +1484,55 @@ kbd {
     background: var(--danger-bg);
     border-radius: var(--radius);
     border: 1px solid var(--danger-border);
+}
+
+/* ===== Tags Autocomplete ===== */
+.tags-input-wrapper {
+    position: relative;
+}
+
+.tags-autocomplete {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
+    z-index: 10;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.tags-autocomplete-item {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.tags-autocomplete-item:hover,
+.tags-autocomplete-item.active {
+    background: rgba(var(--accent-rgb), 0.1);
+    color: var(--accent);
+}
+
+/* ===== Draft Restore Banner ===== */
+.draft-restore-banner {
+    background: rgba(var(--accent-rgb), 0.1);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 /* ===== Auto-sliding gallery styles ===== */

@@ -17,7 +17,7 @@ def _validate_iso_datetime(v: str | None) -> str | None:
 
 
 class EntryCreate(BaseModel):
-    immich_asset_ids: list[str]
+    immich_asset_ids: list[str] = Field(default_factory=list)
     title: str = Field(default="", max_length=500)
     summary: str = Field(default="", max_length=500)
     body: str = Field(..., min_length=1, max_length=BODY_MAX_LENGTH)
@@ -71,12 +71,13 @@ class AssetIdsWithEntriesResponse(BaseModel):
 
 
 class SettingsResponse(BaseModel):
-    auto_slide_gallery: bool = True
+    auto_slide_gallery: bool = False
     theme: str = "dark"
     confetti_enabled: bool = True
+    version: str = "1.1.0"
 
 
 class SettingsUpdate(BaseModel):
-    auto_slide_gallery: bool = True
+    auto_slide_gallery: bool = False
     theme: str = "dark"
     confetti_enabled: bool = True

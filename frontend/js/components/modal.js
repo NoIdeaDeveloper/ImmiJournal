@@ -1,4 +1,4 @@
-import { thumbnailUrl, createEntry, updateEntry } from "../api.js";
+import { thumbnailUrl, createEntry, updateEntry, fetchTags } from "../api.js";
 import { escapeHtml, escapeAttr, formatDate, showToast } from "../utils.js";
 import { showRemoveImagesModal } from "../views/entry.js";
 import { launchConfetti } from "../confetti.js";
@@ -15,6 +15,31 @@ let _ctrlEnterHandler = null;
 let _previousFocus = null;
 
 const SUMMARY_MAX = 200;
+const DRAFT_KEY = "immijournal_draft";
+const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function saveDraft(data) {
+    try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...data, ts: Date.now() }));
+    } catch { /* quota exceeded, ignore */ }
+}
+
+function loadDraft() {
+    try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return null;
+        const draft = JSON.parse(raw);
+        if (Date.now() - draft.ts > DRAFT_MAX_AGE_MS) {
+            localStorage.removeItem(DRAFT_KEY);
+            return null;
+        }
+        return draft;
+    } catch { return null; }
+}
+
+function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+}
 
 /** Trap Tab/Shift+Tab focus within the modal container. */
 function _setupFocusTrap() {
@@ -68,20 +93,33 @@ function dateInputToISO(dateStr) {
     return new Date(Date.UTC(year, month - 1, day)).toISOString();
 }
 
-export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = null) {
+export function showEntryModal(assetIds = [], existingEntry = null, photoCreatedAt = null) {
     _previousFocus = document.activeElement;
     const isEdit = existingEntry !== null;
+    const hasPhotos = assetIds.length > 0;
     const todayISO = toDateInputValue(existingEntry?.created_at || photoCreatedAt || null);
 
+    // Check for stashed draft (only for new entries without photos)
+    const draft = (!isEdit && !hasPhotos) ? loadDraft() : null;
+
     container.innerHTML = `
-        <h2 class="modal-title">${isEdit ? "Edit Entry" : "New Entry"}</h2>
+        <h2 class="modal-title">${isEdit ? "Edit Entry" : (hasPhotos ? "New Entry" : "New Journal Entry")}</h2>
+        ${hasPhotos ? `
         <div class="modal-photos">
             ${assetIds.map((id) => `<img src="${thumbnailUrl(id)}" alt="Photo">`).join("")}
         </div>
+        ` : ""}
+        ${draft ? `
+        <div class="draft-restore-banner">
+            You have an unsaved draft from ${formatDate(new Date(draft.ts).toISOString())}.
+            <button class="btn-link" id="draft-restore-btn">Restore</button>
+            <button class="btn-link" id="draft-discard-btn">Discard</button>
+        </div>
+        ` : ""}
         <div class="modal-field">
             <label for="modal-entry-title">Title <span class="modal-field-hint">(optional)</span></label>
             <input type="text" id="modal-entry-title" placeholder="Give this memory a title..."
-                   value="${isEdit ? escapeAttr(existingEntry.title) : ""}">
+                   value="${isEdit ? escapeAttr(existingEntry.title) : (draft?.title || "")}">
         </div>
         <div class="modal-field modal-field-body">
             <textarea id="modal-entry-body" class="modal-body-textarea" placeholder="Write about this moment..."></textarea>
@@ -95,8 +133,11 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
             </div>
             <div class="modal-field">
                 <label for="modal-entry-tags">Tags <span class="modal-field-hint">(comma-separated)</span></label>
-                <input type="text" id="modal-entry-tags" placeholder="travel, family, vacation..."
-                       value="${isEdit ? escapeAttr(existingEntry.tags || "") : ""}">
+                <div class="tags-input-wrapper">
+                    <input type="text" id="modal-entry-tags" placeholder="travel, family, vacation..."
+                           value="${isEdit ? escapeAttr(existingEntry.tags || "") : (draft?.tags || "")}" autocomplete="off">
+                    <div id="tags-autocomplete" class="tags-autocomplete hidden"></div>
+                </div>
             </div>
             ${isEdit ? `
             <div class="modal-field">
@@ -137,6 +178,28 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
     // Set textarea values via .value to avoid HTML double-encoding
     const textarea = document.getElementById("modal-entry-body");
     if (isEdit) textarea.value = existingEntry.body;
+    else if (draft) textarea.value = draft.body || "";
+
+    // Draft restore/discard handlers
+    const draftRestoreBtn = document.getElementById("draft-restore-btn");
+    const draftDiscardBtn = document.getElementById("draft-discard-btn");
+    if (draftRestoreBtn) {
+        draftRestoreBtn.addEventListener("click", () => {
+            document.getElementById("modal-entry-title").value = draft.title || "";
+            textarea.value = draft.body || "";
+            document.getElementById("modal-entry-tags").value = draft.tags || "";
+            document.getElementById("modal-entry-date").value = draft.date || todayISO;
+            textarea.style.height = "auto";
+            textarea.style.height = textarea.scrollHeight + "px";
+            draftRestoreBtn.closest(".draft-restore-banner")?.remove();
+        });
+    }
+    if (draftDiscardBtn) {
+        draftDiscardBtn.addEventListener("click", () => {
+            clearDraft();
+            draftDiscardBtn.closest(".draft-restore-banner")?.remove();
+        });
+    }
 
     // Summary character count (edit mode only)
     const summaryEl = document.getElementById("modal-entry-summary");
@@ -158,6 +221,87 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
 
     // Focus the body textarea — the primary writing surface
     textarea.focus();
+
+    // Tag autocomplete
+    const tagsInput = document.getElementById("modal-entry-tags");
+    const autocompleteEl = document.getElementById("tags-autocomplete");
+    let allTags = [];
+    let autocompleteIndex = -1;
+
+    fetchTags().then(data => {
+        allTags = (data.tags || []).map(t => t.toLowerCase());
+    }).catch(() => {});
+
+    function showTagAutocomplete() {
+        const val = tagsInput.value;
+        const parts = val.split(",");
+        const currentPart = (parts[parts.length - 1] || "").trim().toLowerCase();
+        if (!currentPart) { autocompleteEl.classList.add("hidden"); return; }
+
+        const existingTags = new Set(parts.slice(0, -1).map(t => t.trim().toLowerCase()).filter(Boolean));
+        const matches = allTags.filter(t => t.startsWith(currentPart) && !existingTags.has(t)).slice(0, 8);
+        if (matches.length === 0) { autocompleteEl.classList.add("hidden"); return; }
+
+        autocompleteIndex = -1;
+        autocompleteEl.innerHTML = matches.map((t, i) =>
+            `<div class="tags-autocomplete-item" data-index="${i}" data-tag="${escapeAttr(t)}">${escapeHtml(t)}</div>`
+        ).join("");
+        autocompleteEl.classList.remove("hidden");
+
+        autocompleteEl.querySelectorAll(".tags-autocomplete-item").forEach(item => {
+            item.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                selectTag(item.dataset.tag);
+            });
+        });
+    }
+
+    function selectTag(tag) {
+        const parts = tagsInput.value.split(",");
+        parts[parts.length - 1] = " " + tag;
+        tagsInput.value = parts.join(",").replace(/^,/, "").trim();
+        autocompleteEl.classList.add("hidden");
+        tagsInput.focus();
+    }
+
+    tagsInput.addEventListener("input", showTagAutocomplete);
+    tagsInput.addEventListener("keydown", (e) => {
+        const items = autocompleteEl.querySelectorAll(".tags-autocomplete-item");
+        if (!items.length || autocompleteEl.classList.contains("hidden")) return;
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            autocompleteIndex = Math.min(autocompleteIndex + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle("active", i === autocompleteIndex));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            autocompleteIndex = Math.max(autocompleteIndex - 1, 0);
+            items.forEach((el, i) => el.classList.toggle("active", i === autocompleteIndex));
+        } else if (e.key === "Enter" || e.key === "Tab") {
+            if (autocompleteIndex >= 0 && autocompleteIndex < items.length) {
+                e.preventDefault();
+                selectTag(items[autocompleteIndex].dataset.tag);
+            }
+        } else if (e.key === "Escape") {
+            autocompleteEl.classList.add("hidden");
+        }
+    });
+    tagsInput.addEventListener("blur", () => {
+        setTimeout(() => autocompleteEl.classList.add("hidden"), 150);
+    });
+
+    // Draft autosave (new entries only, no photos)
+    if (!isEdit && !hasPhotos) {
+        const autosaveDraft = () => {
+            saveDraft({
+                title: document.getElementById("modal-entry-title").value,
+                body: textarea.value,
+                tags: tagsInput.value,
+                date: document.getElementById("modal-entry-date").value,
+            });
+        };
+        container.querySelectorAll("input, textarea").forEach(el => el.addEventListener("input", autosaveDraft));
+    }
 
     if (_ctrlEnterHandler) container.removeEventListener("keydown", _ctrlEnterHandler);
     _ctrlEnterHandler = (e) => {
@@ -239,6 +383,7 @@ export function showEntryModal(assetIds, existingEntry = null, photoCreatedAt = 
                 ? await updateEntry(existingEntry.id, payload)
                 : await createEntry(payload);
             closeModal();
+            clearDraft();
 
             // Invalidate linked asset IDs cache so browse view reflects the new/updated entry
             invalidateLinkedAssetIdsCache();

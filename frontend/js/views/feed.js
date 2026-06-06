@@ -1,5 +1,6 @@
 import { fetchEntries, searchEntries, fetchOnThisDay, fetchRandomEntry, fetchJournalStats } from "../api.js";
 import { renderEntryCard } from "../components/entryCard.js";
+import { showEntryModal } from "../components/modal.js";
 import { escapeHtml, formatDate, showToast } from "../utils.js";
 
 export async function renderFeed(container) {
@@ -16,6 +17,7 @@ export async function renderFeed(container) {
                 <h2 class="feed-header">My Journal</h2>
                 <div class="feed-header-actions">
                     <span id="streak-pill" class="streak-pill" style="display:none"></span>
+                    <button id="new-entry-btn" class="btn btn-primary btn-small">New Entry</button>
                     <button id="surprise-btn" class="btn btn-secondary btn-small">Surprise me</button>
                 </div>
             </div>
@@ -180,6 +182,11 @@ export async function renderFeed(container) {
     }).catch(() => {});
 
     await renderFirstPage();
+
+    // New entry button (text-only)
+    document.getElementById("new-entry-btn")?.addEventListener("click", () => {
+        showEntryModal([]);
+    });
 
     // Surprise me button
     surpriseBtn.addEventListener("click", async () => {
