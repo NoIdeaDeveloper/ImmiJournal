@@ -156,6 +156,16 @@ function renderHeatmap(byDay) {
     }
 
     container.style.display = "";
+
+    // Add legend
+    const existingLegend = container.querySelector(".heatmap-legend");
+    if (existingLegend) existingLegend.remove();
+    const legend = document.createElement("div");
+    legend.className = "heatmap-legend";
+    legend.innerHTML = `<span>Less</span>` +
+        [0, 1, 2, 3, 4].map(l => `<div class="heatmap-legend-cell heat-${l}"></div>`).join("") +
+        `<span>More</span>`;
+    container.appendChild(legend);
 }
 
 function renderTagCloud(topTags) {

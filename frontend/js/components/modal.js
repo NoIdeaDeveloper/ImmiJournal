@@ -264,13 +264,13 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
             // Build EXIF tag suggestions
             const suggestions = [];
             if (asset.exifInfo) {
-                if (asset.exifInfo.city) suggestions.push(asset.exifInfo.city);
-                if (asset.exifInfo.state) suggestions.push(asset.exifInfo.state);
-                if (asset.exifInfo.country) suggestions.push(asset.exifInfo.country);
+                if (asset.exifInfo.city) suggestions.push({ tag: asset.exifInfo.city, icon: "📍" });
+                if (asset.exifInfo.state) suggestions.push({ tag: asset.exifInfo.state, icon: "📍" });
+                if (asset.exifInfo.country) suggestions.push({ tag: asset.exifInfo.country, icon: "📍" });
             }
             if (asset.people && asset.people.length > 0) {
                 for (const person of asset.people.slice(0, 5)) {
-                    if (person.name) suggestions.push(person.name);
+                    if (person.name) suggestions.push({ tag: person.name, icon: "👤" });
                 }
             }
 
@@ -278,7 +278,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
                 const sugEl = document.createElement("div");
                 sugEl.className = "exif-suggestions";
                 sugEl.innerHTML = `<span class="exif-suggestions-label">Suggested tags:</span>` +
-                    suggestions.map(s => `<button class="exif-suggestion-pill" data-tag="${escapeAttr(s)}">${escapeHtml(s)}</button>`).join("");
+                    suggestions.map(s => `<button class="exif-suggestion-pill" data-tag="${escapeAttr(s.tag)}">${s.icon} ${escapeHtml(s.tag)}</button>`).join("");
                 tagsInput.parentNode.appendChild(sugEl);
 
                 sugEl.querySelectorAll(".exif-suggestion-pill").forEach(btn => {
@@ -616,27 +616,32 @@ export function showReorderImagesModal(entryId, assetIds) {
 }
 
 export function closeModal() {
-    overlay.classList.add("hidden");
-    container.innerHTML = "";
-    document.body.style.overflow = "";
+    // Play close animation before hiding
+    overlay.classList.add("closing");
+    setTimeout(() => {
+        overlay.classList.remove("closing");
+        overlay.classList.add("hidden");
+        container.innerHTML = "";
+        document.body.style.overflow = "";
 
-    if (_overlayClickHandler) {
-        overlay.removeEventListener("click", _overlayClickHandler);
-        _overlayClickHandler = null;
-    }
-    if (_escHandler) {
-        document.removeEventListener("keydown", _escHandler);
-        _escHandler = null;
-    }
-    if (_focusTrapHandler) {
-        container.removeEventListener("keydown", _focusTrapHandler);
-        _focusTrapHandler = null;
-    }
-    if (_ctrlEnterHandler) {
-        container.removeEventListener("keydown", _ctrlEnterHandler);
-        _ctrlEnterHandler = null;
-    }
+        if (_overlayClickHandler) {
+            overlay.removeEventListener("click", _overlayClickHandler);
+            _overlayClickHandler = null;
+        }
+        if (_escHandler) {
+            document.removeEventListener("keydown", _escHandler);
+            _escHandler = null;
+        }
+        if (_focusTrapHandler) {
+            container.removeEventListener("keydown", _focusTrapHandler);
+            _focusTrapHandler = null;
+        }
+        if (_ctrlEnterHandler) {
+            container.removeEventListener("keydown", _ctrlEnterHandler);
+            _ctrlEnterHandler = null;
+        }
 
-    _previousFocus?.focus();
-    _previousFocus = null;
+        _previousFocus?.focus();
+        _previousFocus = null;
+    }, 150);
 }

@@ -85,7 +85,7 @@ export async function renderBrowse(container) {
             <div class="browse-header">
                 <h2 class="browse-title">${isAddMode ? 'Select Photos to Add' : 'Your Photos'}</h2>
                 <div class="browse-header-actions">
-                    <button class="btn btn-secondary" id="browse-view-toggle">Albums</button>
+                    <button class="btn btn-secondary" id="browse-view-toggle">📁 Albums</button>
                     <button class="btn btn-secondary" id="toggle-select">${isAddMode ? 'Cancel' : 'Select Multiple'}</button>
                     ${isAddMode ? `<button class="btn btn-primary" id="add-to-entry">Add to Entry</button>` : ''}
                 </div>
@@ -98,6 +98,7 @@ export async function renderBrowse(container) {
             </div>
             <div class="pagination-controls" id="pagination-controls">
                 <button class="btn btn-secondary" id="prev-page" disabled>← Previous</button>
+                <span class="pagination-page-indicator" id="page-indicator">Page 1</span>
                 <button class="btn btn-secondary" id="next-page" disabled>Next →</button>
             </div>
         </div>
@@ -110,6 +111,7 @@ export async function renderBrowse(container) {
     const addToEntryBtn = document.getElementById("add-to-entry");
     const searchInput = document.getElementById("browse-search");
     const viewToggleBtn = document.getElementById("browse-view-toggle");
+    const pageIndicator = document.getElementById("page-indicator");
 
     let currentPage = 1;
     const pageSize = 100;
@@ -214,6 +216,7 @@ export async function renderBrowse(container) {
 
             prevBtn.disabled = currentPage <= 1;
             nextBtn.disabled = !hasMore;
+            pageIndicator.textContent = `Page ${currentPage}`;
 
             gridEl.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {
@@ -348,15 +351,17 @@ export async function renderBrowse(container) {
     viewToggleBtn.addEventListener("click", () => {
         if (isAlbumView) {
             isAlbumView = false;
-            viewToggleBtn.textContent = "Albums";
+            viewToggleBtn.textContent = "📁 Albums";
             searchInput.style.display = "";
             document.querySelector(".browse-title").textContent = "Your Photos";
+            pageIndicator.textContent = "Page 1";
             loadPage(1);
         } else {
             isAlbumView = true;
-            viewToggleBtn.textContent = "Photos";
+            viewToggleBtn.textContent = "📷 Photos";
             searchInput.style.display = "none";
             document.querySelector(".browse-title").textContent = "Albums";
+            pageIndicator.textContent = "";
             loadAlbums();
         }
     });

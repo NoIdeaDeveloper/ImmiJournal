@@ -270,11 +270,15 @@ export async function renderEntry(container, entryId, fromHash = "#/") {
                     ${entry.updated_at !== entry.created_at ? ` &middot; edited ${formatDate(entry.updated_at)}` : ""}
                 </div>
                 ${entryTags.length ? `<div class="entry-detail-tags">${entryTags.map(t => `<a class="entry-tag" href="#/?tag=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`).join("")}</div>` : ""}
+                <div class="entry-detail-meta">
+                    <span class="entry-reading-time">${wordStats(entry.body).readingTime} min read</span>
+                    <span class="entry-word-count">${wordStats(entry.body).words.toLocaleString()} words</span>
+                </div>
                 <div class="entry-detail-body markdown-body">${renderMarkdown(entry.body)}</div>
                 <div class="entry-detail-actions">
-                    <button class="btn btn-secondary" id="entry-edit">Edit</button>
-                    <button class="btn btn-danger" id="entry-delete">Delete</button>
+                    <button class="btn btn-primary" id="entry-edit">Edit</button>
                     <a href="${fromHash}" class="btn btn-secondary">${fromHash.startsWith("#/browse") ? "Back to Browse" : "Back to Journal"}</a>
+                    <button class="btn btn-danger" id="entry-delete">Delete</button>
                 </div>
             </div>
         `;

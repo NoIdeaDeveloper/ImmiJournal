@@ -63,8 +63,18 @@ export async function renderFeed(container) {
     const surpriseBtn = document.getElementById("surprise-btn");
 
     function updateClearButton() {
-        const hasFilters = currentQuery.trim() || currentDateFrom || currentDateTo || currentTag;
+        const filters = [currentQuery.trim(), currentDateFrom, currentDateTo, currentTag].filter(Boolean);
+        const hasFilters = filters.length > 0;
         clearBtn.style.display = hasFilters ? "inline-block" : "none";
+        // Update badge count
+        const existingBadge = clearBtn.querySelector(".filter-count-badge");
+        if (existingBadge) existingBadge.remove();
+        if (hasFilters && filters.length > 1) {
+            const badge = document.createElement("span");
+            badge.className = "filter-count-badge";
+            badge.textContent = filters.length;
+            clearBtn.appendChild(badge);
+        }
     }
 
     async function loadPage(page) {

@@ -37,7 +37,11 @@ export async function renderTags(container) {
 
     function renderTagList(tags) {
         if (tags.length === 0) {
-            tagsListEl.innerHTML = `<div class="empty-state"><p>No tags found.</p></div>`;
+            const isFiltered = filterInput.value.trim().length > 0;
+            tagsListEl.innerHTML = `<div class="empty-state">
+                <div class="empty-state-icon">🏷️</div>
+                <p>${isFiltered ? "No tags match your filter." : "No tags yet — add tags to your entries."}</p>
+            </div>`;
             return;
         }
 
