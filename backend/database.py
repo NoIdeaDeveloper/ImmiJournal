@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import aiosqlite
 from backend.config import DATABASE_PATH
@@ -5,6 +6,12 @@ from backend.config import DATABASE_PATH
 logger = logging.getLogger(__name__)
 
 _db: aiosqlite.Connection | None = None
+_write_lock = asyncio.Lock()
+
+
+def get_write_lock() -> asyncio.Lock:
+    """Return the lock that serializes all write transactions."""
+    return _write_lock
 
 
 async def open_db():

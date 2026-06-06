@@ -85,6 +85,7 @@ MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # Simple per-IP rate limiter for write endpoints: 60 requests per 60 seconds.
 _write_rate: dict[str, list[float]] = defaultdict(list)
+_write_rate_order: list[str] = []  # Tracks insertion order for LRU eviction
 _WRITE_RATE_WINDOW = 60
 _WRITE_RATE_MAX = 60
 _WRITE_RATE_MAX_KEYS = 10000
@@ -97,12 +98,17 @@ def _check_write_rate(ip: str) -> bool:
         _write_rate[ip] = recent
     else:
         _write_rate.pop(ip, None)
+        if ip in _write_rate_order:
+            _write_rate_order.remove(ip)
     if len(recent) >= _WRITE_RATE_MAX:
         return False
+    is_new = ip not in _write_rate
     _write_rate[ip] = recent + [now]
-    # Evict oldest entry if dict grows too large
+    if is_new:
+        _write_rate_order.append(ip)
+    # Evict least-recently-used entry if dict grows too large
     if len(_write_rate) > _WRITE_RATE_MAX_KEYS:
-        oldest_key = next(iter(_write_rate))
+        oldest_key = _write_rate_order.pop(0)
         _write_rate.pop(oldest_key, None)
     return True
 
@@ -173,7 +179,7 @@ _HEALTH_CACHE_TTL = 60
 
 
 @app.get("/api/health")
-async def health_check(full: bool = False):
+async def health_check(full: bool = False, request: Request = None):
     logger.info("Health check endpoint called")
 
     now = time.time()
@@ -182,25 +188,34 @@ async def health_check(full: bool = False):
     if cached and cached.get("healthy") and not full and (now - _health_cache.get("ts", 0)) < _HEALTH_CACHE_TTL:
         return cached
 
+    # Check if request is authenticated
+    is_authenticated = False
+    if request:
+        from backend.auth import validate_session, SESSION_COOKIE
+        token = request.cookies.get(SESSION_COOKIE)
+        is_authenticated = await validate_session(token) if token else False
+
     status: dict = {"database": "ok"}
     details: dict = {}
 
     try:
         db = get_db()
         await db.execute("SELECT 1")
-        cursor = await db.execute("SELECT COUNT(*) as cnt FROM journal_entries")
-        row = await cursor.fetchone()
-        details["entry_count"] = row["cnt"]
-        cursor = await db.execute("SELECT COUNT(*) as cnt FROM sessions WHERE expires_at > ?", (time.time(),))
-        row = await cursor.fetchone()
-        details["active_sessions"] = row["cnt"]
-        if os.path.exists(DATABASE_PATH):
-            details["db_size_bytes"] = os.path.getsize(DATABASE_PATH)
+        # Only expose details to authenticated requests
+        if is_authenticated:
+            cursor = await db.execute("SELECT COUNT(*) as cnt FROM journal_entries")
+            row = await cursor.fetchone()
+            details["entry_count"] = row["cnt"]
+            cursor = await db.execute("SELECT COUNT(*) as cnt FROM sessions WHERE expires_at > ?", (time.time(),))
+            row = await cursor.fetchone()
+            details["active_sessions"] = row["cnt"]
+            if os.path.exists(DATABASE_PATH):
+                details["db_size_bytes"] = os.path.getsize(DATABASE_PATH)
     except Exception as e:
         status["database"] = f"error: {e}"
         logger.error(f"Database health check failed: {e}", exc_info=True)
 
-    if full:
+    if full and is_authenticated:
         status["immich"] = "ok"
         try:
             t0 = time.monotonic()
@@ -213,8 +228,9 @@ async def health_check(full: bool = False):
             status["immich"] = f"error: {e}"
             logger.error(f"Immich health check failed: {e}")
 
-    details["backup_count"] = len(list_backups())
-    details["cache_size_mb"] = round(get_cache_size_mb(), 1)
+    if is_authenticated:
+        details["backup_count"] = len(list_backups())
+        details["cache_size_mb"] = round(get_cache_size_mb(), 1)
 
     healthy = all(v == "ok" for v in status.values())
     result = {"healthy": healthy, **status, **details}

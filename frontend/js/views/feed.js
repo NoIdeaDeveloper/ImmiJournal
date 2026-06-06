@@ -67,7 +67,11 @@ export async function renderFeed(container) {
 
     async function loadPage(page) {
         if (currentQuery.trim()) {
-            return searchEntries(currentQuery, page, pageSize);
+            return searchEntries(currentQuery, page, pageSize, {
+                dateFrom: currentDateFrom || undefined,
+                dateTo: currentDateTo || undefined,
+                tag: currentTag || undefined,
+            });
         }
         return fetchEntries(page, pageSize, {
             dateFrom: currentDateFrom || undefined,

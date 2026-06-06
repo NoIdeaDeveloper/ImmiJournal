@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from backend.auth import require_auth
-from backend.database import get_db
+from backend.database import get_db, get_write_lock
 from backend import backup as backup_module
 from backend.routes.settings import invalidate_stats_cache
 from backend.models import (
@@ -271,100 +271,94 @@ async def create_entry(data: EntryCreate):
     now = datetime.now(timezone.utc).isoformat()
     created_at = data.created_at if data.created_at else now
     db = get_db()
-    try:
-        # Start transaction
-        cursor = await db.execute(
-            "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (data.title, data.summary, data.body, data.tags, created_at, now),
-        )
-        entry_id = cursor.lastrowid
+    async with get_write_lock():
+        try:
+            cursor = await db.execute(
+                "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (data.title, data.summary, data.body, data.tags, created_at, now),
+            )
+            entry_id = cursor.lastrowid
 
-        # Insert all assets using batch operation
-        await db.executemany(
-            "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-            [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
-        )
+            await db.executemany(
+                "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
+            )
 
-        await _sync_tags(db, entry_id, data.tags)
+            await _sync_tags(db, entry_id, data.tags)
 
-        # Commit transaction
-        await db.commit()
-        invalidate_stats_cache()
+            await db.commit()
+            invalidate_stats_cache()
 
-        # Fetch and return the created entry
-        cursor = await db.execute(
-            "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
-        )
-        entry = await cursor.fetchone()
-        return await _build_entry_response(db, entry)
+            cursor = await db.execute(
+                "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
+            )
+            entry = await cursor.fetchone()
+            return await _build_entry_response(db, entry)
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Rollback on error
-        await db.rollback()
-        logger.error(f"Failed to create entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to create entry")
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to create entry: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to create entry")
 
 
 
 @router.put("/entries/{entry_id}", response_model=EntryResponse)
 async def update_entry(entry_id: int, data: EntryUpdate):
     db = get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
-        )
-        entry = await cursor.fetchone()
-        if not entry:
-            raise HTTPException(status_code=404, detail="Entry not found")
+    async with get_write_lock():
+        try:
+            cursor = await db.execute(
+                "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
+            )
+            entry = await cursor.fetchone()
+            if not entry:
+                raise HTTPException(status_code=404, detail="Entry not found")
 
-        now = datetime.now(timezone.utc).isoformat()
-        new_title = data.title if data.title is not None else entry["title"]
-        new_summary = data.summary if data.summary is not None else entry["summary"]
-        new_body = data.body if data.body is not None else entry["body"]
-        new_tags = data.tags if data.tags is not None else entry["tags"]
-        new_created_at = data.created_at if data.created_at is not None else entry["created_at"]
+            now = datetime.now(timezone.utc).isoformat()
+            new_title = data.title if data.title is not None else entry["title"]
+            new_summary = data.summary if data.summary is not None else entry["summary"]
+            new_body = data.body if data.body is not None else entry["body"]
+            new_tags = data.tags if data.tags is not None else entry["tags"]
+            new_created_at = data.created_at if data.created_at is not None else entry["created_at"]
 
-        await db.execute(
-            "UPDATE journal_entries SET title = ?, summary = ?, body = ?, tags = ?, created_at = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_summary, new_body, new_tags, new_created_at, now, entry_id),
-        )
+            await db.execute(
+                "UPDATE journal_entries SET title = ?, summary = ?, body = ?, tags = ?, created_at = ?, updated_at = ? WHERE id = ?",
+                (new_title, new_summary, new_body, new_tags, new_created_at, now, entry_id),
+            )
 
-        if data.immich_asset_ids is not None:
-            if not data.immich_asset_ids:
-                raise HTTPException(
-                    status_code=400, detail="At least one asset ID is required"
+            if data.immich_asset_ids is not None:
+                if not data.immich_asset_ids:
+                    raise HTTPException(
+                        status_code=400, detail="At least one asset ID is required"
+                    )
+
+                await db.execute(
+                    "DELETE FROM entry_assets WHERE entry_id = ?", (entry_id,)
+                )
+                await db.executemany(
+                    "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                    [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
                 )
 
-            # Always replace with the exact submitted list (preserves order, handles add/remove/reorder)
-            await db.execute(
-                "DELETE FROM entry_assets WHERE entry_id = ?", (entry_id,)
+            await _sync_tags(db, entry_id, new_tags)
+
+            await db.commit()
+            invalidate_stats_cache()
+
+            cursor = await db.execute(
+                "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
             )
-            await db.executemany(
-                "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-                [(entry_id, asset_id, position) for position, asset_id in enumerate(data.immich_asset_ids)]
-            )
+            entry = await cursor.fetchone()
+            return await _build_entry_response(db, entry)
 
-        await _sync_tags(db, entry_id, new_tags)
-
-        # Commit transaction
-        await db.commit()
-        invalidate_stats_cache()
-
-        cursor = await db.execute(
-            "SELECT * FROM journal_entries WHERE id = ?", (entry_id,)
-        )
-        entry = await cursor.fetchone()
-        return await _build_entry_response(db, entry)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Rollback on error
-        await db.rollback()
-        logger.error(f"Failed to update entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to update entry")
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to update entry: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to update entry")
 
 
 
@@ -382,30 +376,30 @@ async def add_assets_to_entry(entry_id: int, data: EntryUpdate):
         raise HTTPException(status_code=400, detail="At least one asset ID is required")
     
     db = get_db()
-    try:
-        await _verify_entry_exists(db, entry_id)
-        current_assets = await _get_current_asset_ids(db, entry_id)
-        new_assets = [a for a in data.immich_asset_ids if a not in current_assets]
+    async with get_write_lock():
+        try:
+            await _verify_entry_exists(db, entry_id)
+            current_assets = await _get_current_asset_ids(db, entry_id)
+            new_assets = [a for a in data.immich_asset_ids if a not in current_assets]
 
-        if not new_assets:
-            return {"message": "All specified assets already exist in this entry", "added": []}
+            if not new_assets:
+                return {"message": "All specified assets already exist in this entry", "added": []}
 
-        start_pos = await _get_next_position(db, entry_id)
-        # Insert all assets using batch operation
-        await db.executemany(
-            "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-            [(entry_id, asset_id, position) for position, asset_id in enumerate(new_assets, start=start_pos)]
-        )
-        
-        await db.commit()
-        return {"message": f"Successfully added {len(new_assets)} assets", "added": new_assets}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Failed to add assets to entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to add assets")
+            start_pos = await _get_next_position(db, entry_id)
+            await db.executemany(
+                "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                [(entry_id, asset_id, position) for position, asset_id in enumerate(new_assets, start=start_pos)]
+            )
+            
+            await db.commit()
+            return {"message": f"Successfully added {len(new_assets)} assets", "added": new_assets}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to add assets to entry: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to add assets")
 
 
 @router.post("/entries/{entry_id}/assets/remove")
@@ -423,55 +417,56 @@ async def remove_assets_from_entry(entry_id: int, request: AssetIdsRequest):
         raise HTTPException(status_code=400, detail="At least one asset ID is required")
     
     db = get_db()
-    try:
-        await _verify_entry_exists(db, entry_id)
+    async with get_write_lock():
+        try:
+            await _verify_entry_exists(db, entry_id)
 
-        # Atomically check that removal won't leave zero assets, then delete
-        placeholders = _sql_placeholders(asset_ids)
-        cursor = await db.execute(
-            f"SELECT COUNT(*) as cnt FROM entry_assets WHERE entry_id = ? AND immich_asset_id NOT IN ({placeholders})",
-            [entry_id, *asset_ids],
-        )
-        row = await cursor.fetchone()
-        if row["cnt"] == 0:
-            raise HTTPException(status_code=400, detail="Cannot remove all assets from an entry")
+            placeholders = _sql_placeholders(asset_ids)
+            cursor = await db.execute(
+                f"SELECT COUNT(*) as cnt FROM entry_assets WHERE entry_id = ? AND immich_asset_id NOT IN ({placeholders})",
+                [entry_id, *asset_ids],
+            )
+            row = await cursor.fetchone()
+            if row["cnt"] == 0:
+                raise HTTPException(status_code=400, detail="Cannot remove all assets from an entry")
 
-        cursor = await db.execute(
-            f"DELETE FROM entry_assets WHERE entry_id = ? AND immich_asset_id IN ({placeholders})",
-            [entry_id, *asset_ids],
-        )
-        removed_count = cursor.rowcount
+            cursor = await db.execute(
+                f"DELETE FROM entry_assets WHERE entry_id = ? AND immich_asset_id IN ({placeholders})",
+                [entry_id, *asset_ids],
+            )
+            removed_count = cursor.rowcount
 
-        await db.commit()
-        
-        if removed_count == 0:
-            return {"message": "No assets were removed (may not exist in entry)", "removed": 0}
-        
-        return {"message": f"Successfully removed {removed_count} assets", "removed": removed_count}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Failed to remove assets from entry: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to remove assets")
+            await db.commit()
+            
+            if removed_count == 0:
+                return {"message": "No assets were removed (may not exist in entry)", "removed": 0}
+            
+            return {"message": f"Successfully removed {removed_count} assets", "removed": removed_count}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to remove assets from entry: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to remove assets")
 
 
 @router.delete("/entries/{entry_id}")
 async def delete_entry(entry_id: int):
     db = get_db()
-    try:
-        await _verify_entry_exists(db, entry_id)
-        await db.execute("DELETE FROM journal_entries WHERE id = ?", (entry_id,))
-        await db.commit()
-        invalidate_stats_cache()
-        return {"ok": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Failed to delete entry {entry_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to delete entry")
+    async with get_write_lock():
+        try:
+            await _verify_entry_exists(db, entry_id)
+            await db.execute("DELETE FROM journal_entries WHERE id = ?", (entry_id,))
+            await db.commit()
+            invalidate_stats_cache()
+            return {"ok": True}
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to delete entry {entry_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to delete entry")
 
 
 @router.get("/tags")
@@ -501,30 +496,53 @@ async def search_entries(
     q: str = Query("", min_length=0),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    date_from: str = Query(None, description="ISO date string (inclusive lower bound)"),
+    date_to: str = Query(None, description="ISO date string (inclusive upper bound)"),
+    tag: str = Query(None, description="Filter entries by tag"),
 ):
     """Search journal entries by keyword across title, summary, and body."""
     db = get_db()
     try:
         if not q.strip():
-            return await list_entries(page=page, page_size=page_size)
+            return await list_entries(page=page, page_size=page_size, date_from=date_from, date_to=date_to, tag=tag)
 
-        # Wrap query in double quotes for FTS5 phrase matching; escape internal quotes
-        fts_query = '"' + q.replace('"', '""') + '"'
+        # Build tokenized FTS5 query: split on whitespace, AND each term
+        tokens = q.strip().split()
+        fts_terms = []
+        for tok in tokens:
+            escaped = tok.replace('"', '""')
+            fts_terms.append(f'"{escaped}"')
+        fts_query = " AND ".join(fts_terms)
+
         offset = (page - 1) * page_size
 
-        # Get total count separately (COUNT(*) OVER with LIMIT returns wrong count)
+        # Build additional WHERE conditions for date/tag filters
+        conditions = [
+            "id IN (SELECT rowid FROM journal_entries_fts WHERE journal_entries_fts MATCH ?)"
+        ]
+        params: list = [fts_query]
+        if date_from:
+            conditions.append("created_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("created_at <= ?")
+            params.append(date_to + "T23:59:59.999999Z")
+        if tag:
+            conditions.append(
+                "id IN (SELECT et.entry_id FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = ? COLLATE NOCASE)"
+            )
+            params.append(tag)
+
+        where = f"WHERE {' AND '.join(conditions)}"
+
         count_cursor = await db.execute(
-            """SELECT COUNT(*) as cnt FROM journal_entries
-               WHERE id IN (SELECT rowid FROM journal_entries_fts WHERE journal_entries_fts MATCH ?)""",
-            (fts_query,),
+            f"SELECT COUNT(*) as cnt FROM journal_entries {where}", params
         )
         total = (await count_cursor.fetchone())["cnt"]
 
         cursor = await db.execute(
-            """SELECT * FROM journal_entries
-               WHERE id IN (SELECT rowid FROM journal_entries_fts WHERE journal_entries_fts MATCH ?)
-               ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-            (fts_query, page_size, offset),
+            f"SELECT * FROM journal_entries {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset],
         )
         entries = await cursor.fetchall()
         result = await _build_entries_response(db, entries)
@@ -675,61 +693,57 @@ async def import_journal(data: dict):
     imported = 0
     errors = []
     db = get_db()
-
-    # Process in batches so a large import doesn't hold a single huge transaction
-    # Note: asset IDs are not validated against Immich here; orphaned references
-    # will simply show broken images until the matching asset exists in Immich.
-    for batch_start in range(0, len(entries_data), _IMPORT_BATCH_SIZE):
-        batch = entries_data[batch_start: batch_start + _IMPORT_BATCH_SIZE]
-        batch_imported = 0
-        try:
-            for i, entry in enumerate(batch, start=batch_start):
-                try:
-                    title = entry.get("title", "")
-                    summary = entry.get("summary", "")
-                    body = entry.get("body", "")
-                    tags = entry.get("tags", "")
-                    asset_ids = entry.get("immich_asset_ids", [])
-                    created_at = entry.get("created_at") or datetime.now(timezone.utc).isoformat()
-                    updated_at = entry.get("updated_at") or created_at
-
-                    # Validate date formats
+    async with get_write_lock():
+        for batch_start in range(0, len(entries_data), _IMPORT_BATCH_SIZE):
+            batch = entries_data[batch_start: batch_start + _IMPORT_BATCH_SIZE]
+            batch_imported = 0
+            try:
+                for i, entry in enumerate(batch, start=batch_start):
                     try:
-                        datetime.fromisoformat(created_at)
-                    except (ValueError, TypeError):
-                        errors.append(f"Entry {i}: invalid created_at format")
-                        continue
-                    try:
-                        datetime.fromisoformat(updated_at)
-                    except (ValueError, TypeError):
-                        errors.append(f"Entry {i}: invalid updated_at format")
-                        continue
+                        title = entry.get("title", "")
+                        summary = entry.get("summary", "")
+                        body = entry.get("body", "")
+                        tags = entry.get("tags", "")
+                        asset_ids = entry.get("immich_asset_ids", [])
+                        created_at = entry.get("created_at") or datetime.now(timezone.utc).isoformat()
+                        updated_at = entry.get("updated_at") or created_at
 
-                    if not body or not asset_ids:
-                        errors.append(f"Entry {i}: missing body or asset IDs")
-                        continue
+                        try:
+                            datetime.fromisoformat(created_at)
+                        except (ValueError, TypeError):
+                            errors.append(f"Entry {i}: invalid created_at format")
+                            continue
+                        try:
+                            datetime.fromisoformat(updated_at)
+                        except (ValueError, TypeError):
+                            errors.append(f"Entry {i}: invalid updated_at format")
+                            continue
 
-                    cursor = await db.execute(
-                        "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        (title, summary, body, tags, created_at, updated_at),
-                    )
-                    entry_id = cursor.lastrowid
+                        if not body or not asset_ids:
+                            errors.append(f"Entry {i}: missing body or asset IDs")
+                            continue
 
-                    await db.executemany(
-                        "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
-                        [(entry_id, asset_id, pos) for pos, asset_id in enumerate(asset_ids)],
-                    )
+                        cursor = await db.execute(
+                            "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                            (title, summary, body, tags, created_at, updated_at),
+                        )
+                        entry_id = cursor.lastrowid
 
-                    await _sync_tags(db, entry_id, tags)
-                    batch_imported += 1
-                except Exception as e:
-                    errors.append(f"Entry {i}: {str(e)}")
+                        await db.executemany(
+                            "INSERT INTO entry_assets (entry_id, immich_asset_id, position) VALUES (?, ?, ?)",
+                            [(entry_id, asset_id, pos) for pos, asset_id in enumerate(asset_ids)],
+                        )
 
-            await db.commit()
-            imported += batch_imported
-            invalidate_stats_cache()
-        except Exception as e:
-            await db.rollback()
-            errors.append(f"Batch starting at entry {batch_start} failed to commit: {str(e)}")
+                        await _sync_tags(db, entry_id, tags)
+                        batch_imported += 1
+                    except Exception as e:
+                        errors.append(f"Entry {i}: {str(e)}")
+
+                await db.commit()
+                imported += batch_imported
+                invalidate_stats_cache()
+            except Exception as e:
+                await db.rollback()
+                errors.append(f"Batch starting at entry {batch_start} failed to commit: {str(e)}")
 
     return {"imported": imported, "errors": errors}

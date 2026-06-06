@@ -5,7 +5,7 @@ import time
 from fastapi import Request, HTTPException
 
 from backend.config import APP_PASSWORD, APP_PASSWORD_HASH, verify_password
-from backend.database import get_db
+from backend.database import get_db, get_write_lock
 
 SESSION_COOKIE = "immijournal_session"
 SESSION_TTL_SECONDS = 30 * 24 * 3600  # 30 days
@@ -21,29 +21,31 @@ async def invalidate_sessions_if_password_changed() -> None:
     if not APP_PASSWORD_HASH:
         return  # Auth disabled — nothing to invalidate
     db = get_db()
-    cursor = await db.execute("SELECT value FROM settings WHERE key = 'password_hash'")
-    row = await cursor.fetchone()
-    stored_hash = row["value"] if row else None
-    password_unchanged = stored_hash and APP_PASSWORD and verify_password(APP_PASSWORD, stored_hash)
-    if not password_unchanged:
-        await db.execute("DELETE FROM sessions")
-        await db.execute(
-            "INSERT INTO settings (key, value) VALUES ('password_hash', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (APP_PASSWORD_HASH,),
-        )
-        await db.commit()
-        if stored_hash is not None:
-            import logging
-            logging.getLogger(__name__).info(
-                "APP_PASSWORD changed — all existing sessions have been invalidated."
+    async with get_write_lock():
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'password_hash'")
+        row = await cursor.fetchone()
+        stored_hash = row["value"] if row else None
+        password_unchanged = stored_hash and APP_PASSWORD and verify_password(APP_PASSWORD, stored_hash)
+        if not password_unchanged:
+            await db.execute("DELETE FROM sessions")
+            await db.execute(
+                "INSERT INTO settings (key, value) VALUES ('password_hash', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (APP_PASSWORD_HASH,),
             )
+            await db.commit()
+            if stored_hash is not None:
+                import logging
+                logging.getLogger(__name__).info(
+                    "APP_PASSWORD changed — all existing sessions have been invalidated."
+                )
 
 
 async def _prune_expired_sessions() -> None:
     db = get_db()
-    await db.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
-    await db.commit()
+    async with get_write_lock():
+        await db.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
+        await db.commit()
 
 
 async def schedule_session_pruning():
@@ -66,10 +68,11 @@ async def create_session() -> str:
     token_hash = _hash_token(token)
     expires_at = time.time() + SESSION_TTL_SECONDS
     db = get_db()
-    await db.execute(
-        "INSERT INTO sessions (token, expires_at) VALUES (?, ?)", (token_hash, expires_at)
-    )
-    await db.commit()
+    async with get_write_lock():
+        await db.execute(
+            "INSERT INTO sessions (token, expires_at) VALUES (?, ?)", (token_hash, expires_at)
+        )
+        await db.commit()
     return token  # Return the raw token to the caller (set as cookie); hash is stored in DB
 
 
@@ -85,8 +88,9 @@ async def validate_session(token: str | None) -> bool:
     if row is None:
         return False
     if time.time() > row[0]:
-        await db.execute("DELETE FROM sessions WHERE token = ?", (token_hash,))
-        await db.commit()
+        async with get_write_lock():
+            await db.execute("DELETE FROM sessions WHERE token = ?", (token_hash,))
+            await db.commit()
         return False
     return True
 
@@ -96,8 +100,9 @@ async def delete_session(token: str | None) -> None:
         return
     token_hash = _hash_token(token)
     db = get_db()
-    await db.execute("DELETE FROM sessions WHERE token = ?", (token_hash,))
-    await db.commit()
+    async with get_write_lock():
+        await db.execute("DELETE FROM sessions WHERE token = ?", (token_hash,))
+        await db.commit()
 
 
 async def require_auth(request: Request) -> None:

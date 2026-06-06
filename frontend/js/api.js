@@ -43,8 +43,11 @@ export async function fetchEntries(page = 1, pageSize = 20, { dateFrom, dateTo, 
     return res.json();
 }
 
-export async function searchEntries(q, page = 1, pageSize = 20) {
+export async function searchEntries(q, page = 1, pageSize = 20, { dateFrom, dateTo, tag } = {}) {
     const params = new URLSearchParams({ q, page, page_size: pageSize });
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    if (tag) params.set("tag", tag);
     const res = await apiFetch(`${API_BASE}/journal/search?${params}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();

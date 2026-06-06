@@ -59,8 +59,10 @@ export async function renderStats(container) {
         document.getElementById("longest-streak").textContent = fmtStreak(stats.longest_streak);
         if (stats.by_month.length > 0) {
             const best = stats.by_month.reduce((a, b) => (b.count > a.count ? b : a));
+            const [year, month] = best.month.split("-").map(Number);
+            const localDate = new Date(year, month - 1, 1);
             document.getElementById("most-active-month").textContent =
-                new Date(`${best.month}-01`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+                localDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
         } else {
             document.getElementById("most-active-month").textContent = "—";
         }

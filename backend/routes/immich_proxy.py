@@ -101,8 +101,12 @@ def cleanup_cache_if_needed():
 
             for file, _, file_size in cache_files:
                 try:
+                    ct_sidecar = _content_type_path(file)
                     file.unlink()
                     _track_cache_delete(file)
+                    if ct_sidecar.exists():
+                        ct_sidecar.unlink()
+                        _track_cache_delete(ct_sidecar)
                     if _cache_size_mb <= CACHE_SIZE_LIMIT_MB * 0.9:
                         break
                 except Exception as e:

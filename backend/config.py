@@ -76,7 +76,9 @@ def verify_password(password: str, stored: str) -> bool:
         )
         return hmac.compare_digest(dk.hex(), hash_hex)
     else:
-        # Legacy format with fixed salt (for migration)
+        # Legacy format with fixed salt (for migration from pre-v1 installs).
+        # Kept for backward compatibility; new passwords always use the salt:hex format.
+        # Consider removing after confirming all users have re-authenticated post-migration.
         legacy_salt = b"immijournal-v1"
         dk = hashlib.pbkdf2_hmac(
             "sha256", password.encode(), legacy_salt, _PBKDF2_ITERATIONS
