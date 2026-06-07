@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ImmiJournal</Name>
+  <Repository>ghcr.io/noidea-developer/immijournal:latest</Repository>
+  <Registry>https://github.com/NoIdeaDeveloper/ImmiJournal/pkgs/container/immijournal</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/NoIdeaDeveloper/ImmiJournal/discussions</Support>
+  <Project>https://github.com/NoIdeaDeveloper/ImmiJournal</Project>
+  <Overview>A journaling app for your Immich photo library. Write diary entries tied to your photos — browse your Immich library, select one image or a group, and capture your thoughts alongside them. Includes full-text search, tags, statistics, and a chronological feed.</Overview>
+  <Category>MediaServer:Photos</Category>
+  <WebUI>http://[IP]:[PORT:8421]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/NoIdeaDeveloper/ImmiJournal/main/unraid-template/ImmiJournal.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/NoIdeaDeveloper/ImmiJournal/main/unraid-template/icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <DateInstalled></DateInstalled>
+
+  <!-- Web UI Port -->
+  <Config
+    Name="WebUI Port"
+    Target="8000"
+    Default="8421"
+    Mode="tcp"
+    Description="Port to access the ImmiJournal web interface."
+    Type="Port"
+    Display="always"
+    Required="true"
+    Mask="false">8421</Config>
+
+  <!-- Data volume -->
+  <Config
+    Name="Data"
+    Target="/data"
+    Default="/mnt/user/appdata/immijournal"
+    Mode="rw"
+    Description="Where ImmiJournal stores its SQLite database, backups, and image cache. Persists across container updates."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false">/mnt/user/appdata/immijournal</Config>
+
+  <!-- Required: Immich API URL -->
+  <Config
+    Name="Immich API URL"
+    Target="IMMICH_BASE_URL"
+    Default="http://192.168.1.x:8080/api"
+    Description="Base URL of your Immich server API. Must end with /api. Example: http://192.168.1.100:8080/api"
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false">http://192.168.1.x:8080/api</Config>
+
+  <!-- Required: Immich API Key -->
+  <Config
+    Name="Immich API Key"
+    Target="IMMICH_API_KEY"
+    Default=""
+    Description="Your Immich API key. Find it in Immich &gt; Account Settings &gt; API Keys."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="true"></Config>
+
+  <!-- Optional: App Password -->
+  <Config
+    Name="App Password"
+    Target="APP_PASSWORD"
+    Default=""
+    Description="Optional password to restrict access to ImmiJournal. When set, a login page is shown. Leave blank for open access on your local network."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"></Config>
+
+  <!-- Advanced: PUID -->
+  <Config
+    Name="PUID"
+    Target="PUID"
+    Default="99"
+    Description="User ID the container runs as, for file ownership on the host volume. Run 'id' in the Unraid terminal to find your UID. Default 99 (nobody) works for most setups."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">99</Config>
+
+  <!-- Advanced: PGID -->
+  <Config
+    Name="PGID"
+    Target="PGID"
+    Default="100"
+    Description="Group ID the container runs as. Default 100 (users) works for most Unraid setups."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">100</Config>
+
+  <!-- Advanced: Secure Cookies -->
+  <Config
+    Name="Secure Cookies"
+    Target="SECURE_COOKIES"
+    Default="false"
+    Description="Set to 'true' only if ImmiJournal is served over HTTPS (e.g. behind a reverse proxy with SSL). Leave false for plain HTTP on a local network."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">false</Config>
+
+</Container>

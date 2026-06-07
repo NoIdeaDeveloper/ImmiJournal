@@ -1,6 +1,6 @@
 services:
   immijournal:
-    image: ghcr.io/jeffgoldblum/immijournal:latest
+    image: ghcr.io/noidea-developer/immijournal:latest
     container_name: immijournal
     ports:
       - "8421:8000"

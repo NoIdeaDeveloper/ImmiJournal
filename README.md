@@ -1,6 +1,14 @@
 # ImmiJournal
 
-A journaling app for your Immich photo library
+**A journaling app for your Immich photo library.**
+
+Write diary entries tied to your memories. Browse your Immich photos, select one or a group, and capture your thoughts alongside them.
+
+[![CI](https://github.com/NoIdeaDeveloper/ImmiJournal/actions/workflows/docker.yml/badge.svg)](https://github.com/NoIdeaDeveloper/ImmiJournal/actions/workflows/docker.yml)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-immijournal-blue?logo=docker)](https://github.com/NoIdeaDeveloper/ImmiJournal/pkgs/container/immijournal)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
 
 ## Features
 
@@ -9,25 +17,54 @@ A journaling app for your Immich photo library
 - Multi-select photos to write a single group journal entry
 - Chronological journal feed (diary-style)
 - Group entries display a horizontal scrollable row of photos
+- Full-text search, tags, and statistics
 - Edit and delete entries at any time
 - Immich API key stays server-side (never exposed to browser)
 - Optional app password to restrict access on your local network
+- Dark, light, or system (auto) theme
+- Export and import your journal as JSON
+
+---
 
 ## Requirements
 
-- Running Immich server (local network, self-hosted)
+- Running [Immich](https://immich.app) server (local network, self-hosted)
 - Immich API key (Immich → Account Settings → API Keys)
-- Docker
+- Docker (or Unraid)
 
-## How to Use
+---
 
-- **Journal tab** — chronological feed of all entries
-- **Photos tab** — browse Immich library
-  - Click a photo → write a single-photo entry
-  - Click "Select Multiple" → check photos → "Write Entry" for a group
-- **Writing** — optional title + your thoughts → Save
-- **Entry detail** — click any feed card → full view with Edit/Delete
-- **Multi-photo entries** — horizontal scrollable row; click any image for full-screen
+## Installation
+
+### Option A — Unraid Community Apps (easiest)
+
+1. Open your Unraid web UI → **Apps** tab
+2. Search for **ImmiJournal**
+3. Click **Install**, fill in your Immich URL and API key, click **Apply**
+
+> **Not listed yet?** You can add the template manually:
+> 1. In the Apps tab, click the **CA User Templates** button
+> 2. Paste the raw template URL:
+>    `https://raw.githubusercontent.com/NoIdeaDeveloper/ImmiJournal/main/unraid-template/ImmiJournal.xml`
+
+---
+
+### Option B — Docker Compose
+
+```bash
+# 1. Download the compose file
+curl -O https://raw.githubusercontent.com/NoIdeaDeveloper/ImmiJournal/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/NoIdeaDeveloper/ImmiJournal/main/.env.example
+
+# 2. Configure
+cp .env.example .env
+# Edit .env with your Immich URL, API key, and optional password
+
+# 3. Start
+docker compose up -d
+
+# Access at http://YOUR_SERVER_IP:8421
+```
 
 ---
 
@@ -35,7 +72,7 @@ A journaling app for your Immich photo library
 
 ### App Password (Recommended)
 
-By default, anyone on your local network who can reach the app's port can use it. To restrict access, set an `APP_PASSWORD` in your `.env`:
+By default, anyone on your local network who can reach the app's port can use it. To restrict access, set `APP_PASSWORD` in your `.env`:
 
 ```env
 APP_PASSWORD=your_password_here
@@ -47,7 +84,7 @@ When set:
 - All API routes return `401 Unauthorized` without a valid session
 - Removing `APP_PASSWORD` disables auth entirely (backwards compatible)
 
-### What's Protected by Default
+### What's Protected
 
 | Concern | Status |
 |---|---|
@@ -60,14 +97,14 @@ When set:
 ## 🌉 Network Setup
 
 ```
-Your Browser  ──→  http://192.168.1.180:8421  ──→  ImmiJournal
+Your Browser  ──→  http://YOUR_SERVER_IP:8421  ──→  ImmiJournal
                                                           │
                                                           ↓
-                                               http://192.168.1.180:8080
-                                                       Immich
+                                              http://YOUR_SERVER_IP:8080
+                                                        Immich
 ```
 
-Both services run on your Unraid server's main bridge network. ImmiJournal communicates with Immich via your server's LAN IP — no special Docker networking required.
+Both services run on your server's main bridge network. ImmiJournal communicates with Immich via your server's LAN IP — no special Docker networking required.
 
 ---
 
@@ -77,25 +114,14 @@ Both services run on your Unraid server's main bridge network. ImmiJournal commu
 
 | Setting | Value |
 |---|---|
-| Unraid Server IP | `192.168.1.180` |
-| Immich URL | `http://192.168.1.180:8080/api` |
+| Immich URL | `http://YOUR_SERVER_IP:8080/api` |
 | ImmiJournal Port | `8421` |
 | Data Directory | `/mnt/user/appdata/immijournal` |
 | Network Mode | `bridge` |
 
-### Quick Start
+### Manual Quick Start
 
-#### 1. Copy the project to your Unraid server
-
-```bash
-# Connect via SSH or use the Unraid terminal
-cd /mnt/user/appdata/
-
-git clone https://github.com/your-repo/immijournal.git immijournal
-cd immijournal
-```
-
-#### 2. Configure your environment
+#### 1. Configure your environment
 
 ```bash
 cp .env.example .env
@@ -108,11 +134,11 @@ Fill in your values:
 # Required: your Immich API key (Immich → Account Settings → API Keys)
 IMMICH_API_KEY=your_actual_api_key_here
 
+# Required: your Immich server API URL
+IMMICH_BASE_URL=http://YOUR_SERVER_IP:8080/api
+
 # Recommended: restrict access with a password
 APP_PASSWORD=your_password_here
-
-# Optional: override Immich URL if different from default
-# IMMICH_BASE_URL=http://192.168.1.180:8080/api
 
 # Optional: set file ownership to match your Unraid user
 # Run `id` in the Unraid terminal to find your PUID/PGID
@@ -123,25 +149,23 @@ APP_PASSWORD=your_password_here
 
 Save: `Ctrl+X` → `Y` → `Enter`
 
-#### 3. Deploy
+#### 2. Deploy
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-Wait ~30 seconds for the container to start.
-
-#### 4. Access ImmiJournal
+#### 3. Access ImmiJournal
 
 ```
-http://192.168.1.180:8421
+http://YOUR_SERVER_IP:8421
 ```
 
 ### PUID / PGID (File Permissions)
 
 Unraid uses user/group IDs to control file ownership. By default this app runs as `99/100` (`nobody/users`), which works for most Unraid setups.
 
-If your Immich library or appdata folder is owned by a different user, match the IDs:
+If your appdata folder is owned by a different user, match the IDs:
 
 ```bash
 # Find your user's IDs in the Unraid terminal
@@ -155,30 +179,23 @@ PUID=1000
 PGID=1000
 ```
 
-The container will create `/mnt/user/appdata/immijournal/immijournal.db` owned by this user.
-
 ### Volume / Data Persistence
 
 Data is stored at `/mnt/user/appdata/immijournal` on the host, mapped to `/data` inside the container.
 
-```yaml
-volumes:
-  - /mnt/user/appdata/immijournal:/data
-```
-
-- **Database file:** `/mnt/user/appdata/immijournal/immijournal.db`
-- **Backups:** copy that directory
-- **Migration:** move the directory and update the volume path in `docker-compose.yml`
+- **Database file:** `immijournal.db`
+- **Backups:** copy the entire appdata directory
+- **Migration:** move the directory and update the volume path
 
 ### Updating
 
 ```bash
-cd /mnt/user/appdata/immijournal
-git pull
-docker compose up -d --build
+# Pull the latest image and recreate the container
+docker compose pull
+docker compose up -d
 ```
 
-> **Upgrading from an earlier version?** If you previously used this app under the "Thoughtful Frame" name, your database may be named `thoughtful_frame.db`. The new default is `immijournal.db`. Either rename the file:
+> **Upgrading from an earlier version?** If you previously used this app under the "Thoughtful Frame" name, your database may be named `thoughtful_frame.db`. Either rename the file:
 > ```bash
 > mv /mnt/user/appdata/immijournal/thoughtful_frame.db /mnt/user/appdata/immijournal/immijournal.db
 > ```
@@ -194,17 +211,11 @@ docker compose up -d --build
 # Verify config
 cat .env | grep IMMICH_BASE_URL
 
-# Test from host
-curl http://192.168.1.180:8080/api/server-info
+# Test from host (replace with your server IP)
+curl http://YOUR_SERVER_IP:8080/api/server-info
 
 # Test from inside the container
-docker exec -it immijournal curl http://192.168.1.180:8080/api/server-info
-
-# Check firewall allows port 8080
-telnet 192.168.1.180 8080
-
-# Verify Immich is running
-docker ps | grep immich
+docker exec -it immijournal curl http://YOUR_SERVER_IP:8080/api/server-info
 ```
 
 **Database permission errors**
@@ -221,7 +232,7 @@ docker compose restart
 # Find what's using it
 netstat -tulnp | grep 8421
 
-# Change port in docker-compose.yml, then recreate
+# Change the host port in docker-compose.yml (e.g. 8422:8000), then recreate
 docker compose up -d --force-recreate
 ```
 
@@ -278,7 +289,7 @@ source .venv/bin/activate        # Mac/Linux
 #### 3. Install dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 #### 4. Configure environment
@@ -288,7 +299,13 @@ cp .env.example .env
 # Fill in your Immich server details
 ```
 
-#### 5. Start the dev server
+#### 5. Run tests
+
+```bash
+python -m pytest -q
+```
+
+#### 6. Start the dev server
 
 ```bash
 uvicorn backend.main:app --reload
@@ -296,7 +313,14 @@ uvicorn backend.main:app --reload
 
 Open: [http://localhost:8000](http://localhost:8000)
 
-**Tips:**
-- Hot reload is on by default — save a file and the server restarts
-- API endpoints: `GET /api/health`, `GET /api/journal/entries`, `POST /api/journal/entries`
-- Port 8000 in use? `uvicorn backend.main:app --port 8001 --reload`
+---
+
+## 🤝 Contributing
+
+Bug reports and pull requests are welcome. Please open an issue first for significant changes so we can discuss the approach.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
