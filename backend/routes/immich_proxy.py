@@ -224,7 +224,9 @@ async def _image_response(asset_id: str, variant: str, fetcher) -> Response:
     return Response(
         content=image_bytes,
         media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400"},
+        # private: browser may cache, but shared/proxy caches must not store
+        # these auth-gated images.
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 

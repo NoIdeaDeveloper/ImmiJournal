@@ -8,7 +8,7 @@ Up to BACKUP_KEEP_COUNT daily backups are retained; older ones are pruned.
 import asyncio
 import logging
 import os
-import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,14 +29,29 @@ def _backup_dir() -> Path:
 
 
 def run_backup() -> str:
-    """Copy the SQLite database to the backup directory. Returns the backup file path."""
+    """Back up the SQLite database to the backup directory. Returns the backup file path.
+
+    Uses SQLite's online backup API rather than a plain file copy. The database
+    runs in WAL mode, where recently committed transactions may live in the
+    -wal file and not yet be checkpointed into the main .db. A raw file copy can
+    therefore miss recent writes or capture a torn copy; the backup API produces
+    a transactionally consistent single-file snapshot.
+    """
     backup_dir = _backup_dir()
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     backup_path = backup_dir / f"immijournal_{timestamp}.db"
 
-    shutil.copy2(DATABASE_PATH, backup_path)
+    source = sqlite3.connect(DATABASE_PATH, timeout=30.0)
+    try:
+        dest = sqlite3.connect(str(backup_path))
+        try:
+            source.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        source.close()
     logger.info(f"Database backup created: {backup_path}")
 
     _prune_old_backups(backup_dir)

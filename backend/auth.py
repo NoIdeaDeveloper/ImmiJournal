@@ -39,6 +39,19 @@ async def invalidate_sessions_if_password_changed() -> None:
                 logging.getLogger(__name__).info(
                     "APP_PASSWORD changed — all existing sessions have been invalidated."
                 )
+        elif ":" not in stored_hash:
+            # Password unchanged but stored in the legacy fixed-salt format.
+            # Transparently upgrade it to the modern salted format so the legacy
+            # code path can eventually be retired. Sessions stay valid.
+            await db.execute(
+                "UPDATE settings SET value = ? WHERE key = 'password_hash'",
+                (APP_PASSWORD_HASH,),
+            )
+            await db.commit()
+            import logging
+            logging.getLogger(__name__).info(
+                "Upgraded stored password hash to the modern salted format."
+            )
 
 
 async def _prune_expired_sessions() -> None:

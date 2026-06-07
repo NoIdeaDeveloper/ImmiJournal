@@ -36,12 +36,14 @@ async def test_create_missing_body_returns_422(auth_client):
     assert resp.status_code == 422
 
 
-async def test_create_empty_asset_ids_returns_400(auth_client):
+async def test_create_text_only_entry_succeeds(auth_client):
+    """Text-only (photo-less) entries are allowed."""
     resp = await auth_client.post(
         "/api/journal/entries",
         json={"immich_asset_ids": [], "body": "Hello"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 201
+    assert resp.json()["immich_asset_ids"] == []
 
 
 async def test_create_tags_stored_in_normalized_tables(auth_client, db):
@@ -101,13 +103,15 @@ async def test_update_assets_replaces_list(auth_client):
     assert set(resp.json()["immich_asset_ids"]) == {"new-1", "new-2"}
 
 
-async def test_update_empty_assets_returns_400(auth_client):
+async def test_update_to_empty_assets_succeeds(auth_client):
+    """Clearing all photos from an entry is allowed (becomes text-only)."""
     created = (await _create(auth_client)).json()
     resp = await auth_client.put(
         f"/api/journal/entries/{created['id']}",
         json={"immich_asset_ids": []},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    assert resp.json()["immich_asset_ids"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -198,13 +202,17 @@ async def test_remove_assets(auth_client):
     assert entry["immich_asset_ids"] == ["keep"]
 
 
-async def test_remove_last_asset_returns_400(auth_client):
+async def test_remove_last_asset_succeeds(auth_client):
+    """Removing the final photo is allowed; the entry becomes text-only."""
     created = (await _create(auth_client, immich_asset_ids=["only"])).json()
     resp = await auth_client.post(
         f"/api/journal/entries/{created['id']}/assets/remove",
         json={"asset_ids": ["only"]},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+
+    entry = (await auth_client.get(f"/api/journal/entries/{created['id']}")).json()
+    assert entry["immich_asset_ids"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -293,10 +301,11 @@ async def test_get_tags(auth_client):
     resp = await auth_client.get("/api/journal/tags")
     assert resp.status_code == 200
     tags = resp.json()["tags"]
-    assert "mountains" in tags
-    assert "lakes" in tags
-    assert "trails" in tags
-    assert len(tags) == len(set(tags))
+    by_name = {t["name"]: t["usage_count"] for t in tags}
+    assert by_name["mountains"] == 2
+    assert by_name["lakes"] == 1
+    assert by_name["trails"] == 1
+    assert len(by_name) == len(tags)  # no duplicate tag names
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +355,8 @@ async def test_import_wrong_version_returns_400(auth_client):
     assert resp.status_code == 400
 
 
-async def test_import_missing_body_or_assets_skipped(auth_client):
+async def test_import_missing_body_skipped(auth_client):
+    """Entries without a body are skipped; photo-less entries import fine."""
     payload = {
         "version": "1",
         "entries": [
@@ -357,5 +367,5 @@ async def test_import_missing_body_or_assets_skipped(auth_client):
     }
     resp = await auth_client.post("/api/journal/import", json=payload)
     result = resp.json()
-    assert result["imported"] == 1
-    assert len(result["errors"]) == 2
+    assert result["imported"] == 2
+    assert len(result["errors"]) == 1

@@ -3,3 +3,6 @@ uvicorn==0.39.0
 httpx==0.28.1
 python-dotenv==1.2.2
 aiosqlite==0.22.1
+# Key transitive deps pinned for reproducible, security-reviewable builds
+pydantic==2.13.4
+starlette==0.52.1
