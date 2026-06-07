@@ -3,7 +3,7 @@ async def test_get_default_settings(auth_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["auto_slide_gallery"] is False
-    assert data["theme"] == "dark"
+    assert data["theme"] == "system"
     assert data["confetti_enabled"] is True
 
 

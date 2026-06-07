@@ -12,10 +12,11 @@ export async function renderSettings(container) {
                     <label class="setting-label">
                         <span class="setting-description">
                             <strong>Theme</strong>
-                            <span class="setting-subtext">Choose between dark and light mode</span>
+                            <span class="setting-subtext">Dark, light, or match your system</span>
                         </span>
                     </label>
                     <div class="theme-toggle-group">
+                        <button class="theme-btn" id="theme-system">🖥️ Auto</button>
                         <button class="theme-btn" id="theme-dark">🌙 Dark</button>
                         <button class="theme-btn" id="theme-light">☀️ Light</button>
                     </div>
@@ -91,7 +92,7 @@ export async function renderSettings(container) {
     // Track current settings so toggle handlers can send complete payloads
     let currentSettings = {
         auto_slide_gallery: false,
-        theme: localStorage.getItem("theme") || "dark",
+        theme: localStorage.getItem("theme") || "system",
         confetti_enabled: true,
     };
 
@@ -104,6 +105,7 @@ export async function renderSettings(container) {
     }
 
     function updateThemeButtons(theme) {
+        document.getElementById("theme-system").classList.toggle("active", theme === "system");
         document.getElementById("theme-dark").classList.toggle("active", theme === "dark");
         document.getElementById("theme-light").classList.toggle("active", theme === "light");
     }
@@ -130,6 +132,7 @@ export async function renderSettings(container) {
 
         updateThemeButtons(currentSettings.theme);
 
+        document.getElementById("theme-system").addEventListener("click", () => saveTheme("system"));
         document.getElementById("theme-dark").addEventListener("click", () => saveTheme("dark"));
         document.getElementById("theme-light").addEventListener("click", () => saveTheme("light"));
 
@@ -167,8 +170,9 @@ export async function renderSettings(container) {
         console.error("Failed to load settings:", error);
 
         // Fallback from localStorage
-        const localTheme = localStorage.getItem("theme") || "dark";
+        const localTheme = localStorage.getItem("theme") || "system";
         updateThemeButtons(localTheme);
+        document.getElementById("theme-system").addEventListener("click", () => saveTheme("system"));
         document.getElementById("theme-dark").addEventListener("click", () => saveTheme("dark"));
         document.getElementById("theme-light").addEventListener("click", () => saveTheme("light"));
 

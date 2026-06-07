@@ -31,7 +31,8 @@ async def get_settings():
         row_map = {r[0]: r[1] for r in rows}
 
         auto_slide_gallery = row_map.get("auto_slide_gallery", "false").lower() == "true"
-        theme = row_map.get("theme", "dark")
+        # "system" (follow OS preference) is the default until the user picks a theme.
+        theme = row_map.get("theme", "system")
         confetti_enabled = row_map.get("confetti_enabled", "true").lower() == "true"
 
         return SettingsResponse(auto_slide_gallery=auto_slide_gallery, theme=theme, confetti_enabled=confetti_enabled, version=APP_VERSION)
@@ -46,8 +47,8 @@ async def update_settings(settings: SettingsUpdate):
     """Update application settings"""
     logger.debug(f"Updating settings: {settings}")
 
-    if settings.theme not in ("dark", "light"):
-        raise HTTPException(status_code=400, detail="theme must be 'dark' or 'light'")
+    if settings.theme not in ("dark", "light", "system"):
+        raise HTTPException(status_code=400, detail="theme must be 'dark', 'light', or 'system'")
 
     db = get_db()
     try:

@@ -76,12 +76,12 @@ class TagRename(BaseModel):
 
 class SettingsResponse(BaseModel):
     auto_slide_gallery: bool = False
-    theme: str = "dark"
+    theme: str = "system"
     confetti_enabled: bool = True
     version: str = "1.2.0"
 
 
 class SettingsUpdate(BaseModel):
     auto_slide_gallery: bool = False
-    theme: str = "dark"
+    theme: str = "system"
     confetti_enabled: bool = True

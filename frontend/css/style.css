@@ -68,6 +68,9 @@ body {
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 ::selection {
@@ -1142,6 +1145,10 @@ kbd {
 
 .btn-primary:hover {
     background: var(--accent-hover);
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -2516,4 +2523,39 @@ kbd {
     .tag-manage-actions .btn {
         flex: 1;
     }
+}
+
+/* ===== Visual Polish ===== */
+
+/* Placeholder background so images don't flash white before they load,
+   and a gentle fade-in as they render. */
+.entry-card-thumb,
+.photo-scroll-row img,
+.photo-grid-item img,
+.album-card-cover,
+.entry-detail-photos img {
+    background: var(--card-bg);
+}
+
+@keyframes imgFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.photo-grid-item img,
+.entry-card-thumb,
+.album-card-cover {
+    animation: imgFadeIn 0.4s ease both;
+}
+
+/* Tighter, more deliberate display typography for large serif headings. */
+.feed-header,
+.browse-title,
+.entry-detail-title,
+.settings-title,
+.tags-page-title,
+.stats-title,
+.empty-state h2 {
+    letter-spacing: -0.01em;
+    text-wrap: balance;
 }

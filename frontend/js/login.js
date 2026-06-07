@@ -1,13 +1,21 @@
-document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";
+function _systemTheme() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+function _resolveTheme(pref) {
+    return pref === 'system' ? _systemTheme() : pref;
+}
+document.documentElement.dataset.theme = _resolveTheme(localStorage.getItem("theme") || "system");
 
 (function () {
     const btn = document.getElementById('theme-btn');
+    // The login toggle only switches between explicit dark/light; it does not
+    // change the stored "system" preference used elsewhere in the app.
     function applyTheme(theme) {
         document.documentElement.dataset.theme = theme;
         btn.textContent = theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
         localStorage.setItem('theme', theme);
     }
-    applyTheme(localStorage.getItem('theme') || 'dark');
+    applyTheme(_resolveTheme(localStorage.getItem('theme') || 'system'));
     btn.addEventListener('click', () => {
         applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     });

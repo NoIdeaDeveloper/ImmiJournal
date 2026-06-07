@@ -2,17 +2,39 @@ import { getSettings } from "./api.js";
 
 const contentEl = document.getElementById("app-content");
 
-// Apply theme immediately from localStorage to avoid flash, then reconcile with API
-export function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("theme", theme);
+// Theme can be "dark", "light", or "system" (follow the OS preference).
+function systemTheme() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark";
 }
 
-applyTheme(localStorage.getItem("theme") || "dark");
+function resolveTheme(pref) {
+    return pref === "system" ? systemTheme() : pref;
+}
+
+// Apply theme immediately from localStorage to avoid flash, then reconcile with API.
+// `pref` is the stored preference; the resolved value is what we paint.
+export function applyTheme(pref) {
+    localStorage.setItem("theme", pref);
+    const resolved = resolveTheme(pref);
+    document.documentElement.dataset.theme = resolved;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = resolved === "light" ? "#FAF6F1" : "#1c1c1c";
+}
+
+applyTheme(localStorage.getItem("theme") || "system");
 
 getSettings().then((settings) => {
     if (settings.theme) applyTheme(settings.theme);
 }).catch(() => {});
+
+// Live-update when the OS theme changes and the user is following "system".
+if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+        if ((localStorage.getItem("theme") || "system") === "system") applyTheme("system");
+    });
+}
 
 let _prevHash = "#/";
 
