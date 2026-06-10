@@ -46,6 +46,7 @@ class EntryUpdate(BaseModel):
 
 class EntryResponse(BaseModel):
     id: int
+    entry_uid: Optional[str] = None
     immich_asset_ids: list[str]
     title: str
     summary: str

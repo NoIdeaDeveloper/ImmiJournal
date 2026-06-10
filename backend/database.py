@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 import aiosqlite
 from backend.config import DATABASE_PATH
 
@@ -188,10 +189,24 @@ async def _m003_add_fts_and_tags_tables(db: aiosqlite.Connection) -> None:
         )
 
 
+async def _m004_add_entry_uid(db: aiosqlite.Connection) -> None:
+    await db.execute("ALTER TABLE journal_entries ADD COLUMN entry_uid TEXT")
+    # Backfill existing entries with UUIDs
+    cursor = await db.execute("SELECT id FROM journal_entries")
+    rows = await cursor.fetchall()
+    for row in rows:
+        await db.execute(
+            "UPDATE journal_entries SET entry_uid = ? WHERE id = ?",
+            (str(uuid.uuid4()), row["id"]),
+        )
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_entry_uid ON journal_entries(entry_uid)")
+
+
 MIGRATIONS: list[tuple[int, str, object]] = [
     (1, "add summary column", _m001_add_summary),
     (2, "add tags column", _m002_add_tags),
     (3, "add FTS5 index and normalized tags tables", _m003_add_fts_and_tags_tables),
+    (4, "add entry_uid for idempotent import", _m004_add_entry_uid),
 ]
 
 

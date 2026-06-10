@@ -16,7 +16,21 @@ export function renderPhotoGrid(assets, assetsWithEntries, alreadyInEntry = new 
 
     for (const asset of assets) {
         const dayKey = asset.fileCreatedAt ? asset.fileCreatedAt.slice(0, 10) : null;
-        const assetDate = dayKey ? (_dateCache[dayKey] ??= formatDate(asset.fileCreatedAt)) : null;
+        let assetDate = null;
+        if (dayKey) {
+            if (!_dateCache[dayKey]) {
+                // Use UTC interpretation for date-only strings to avoid timezone shifts
+                const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(asset.fileCreatedAt);
+                const d = isDateOnly
+                    ? new Date(asset.fileCreatedAt + "T12:00:00Z")
+                    : new Date(asset.fileCreatedAt);
+                _dateCache[dayKey] = d.toLocaleDateString("en-US", {
+                    year: "numeric", month: "long", day: "numeric",
+                    ...(isDateOnly ? { timeZone: "UTC" } : {}),
+                });
+            }
+            assetDate = _dateCache[dayKey];
+        }
         if (assetDate && assetDate !== currentDate) {
             const header = document.createElement("div");
             header.className = "date-group-header";

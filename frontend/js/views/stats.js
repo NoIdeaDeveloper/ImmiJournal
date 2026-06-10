@@ -136,9 +136,48 @@ function renderHeatmap(byDay) {
 
     grid.innerHTML = "";
 
+    // Add month labels along the top
+    const monthRow = document.createElement("div");
+    monthRow.className = "heatmap-month-labels";
+    let lastMonth = -1;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const tempDate = new Date(startDate);
+    let weekIndex = 0;
+    while (tempDate <= today) {
+        const m = tempDate.getMonth();
+        if (m !== lastMonth) {
+            const label = document.createElement("span");
+            label.className = "heatmap-month-label";
+            label.textContent = monthNames[m];
+            // Position: each week is ~13px wide (cell + gap)
+            label.style.gridColumn = `${weekIndex + 1}`;
+            monthRow.appendChild(label);
+            lastMonth = m;
+        }
+        if (tempDate.getDay() === 6 || tempDate >= today) {
+            weekIndex++;
+        }
+        tempDate.setDate(tempDate.getDate() + 1);
+    }
+    container.insertBefore(monthRow, grid);
+
+    // Add weekday labels
+    const weekdayLabels = document.createElement("div");
+    weekdayLabels.className = "heatmap-weekday-labels";
+    ["", "Mon", "", "Wed", "", "Fri", ""].forEach(label => {
+        const el = document.createElement("span");
+        el.textContent = label;
+        weekdayLabels.appendChild(el);
+    });
+    container.insertBefore(weekdayLabels, grid);
+
     const current = new Date(startDate);
     while (current <= today) {
-        const iso = current.toISOString().slice(0, 10);
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, "0");
+        const d = String(current.getDate()).padStart(2, "0");
+        const iso = `${y}-${m}-${d}`;
         const count = countMap[iso] || 0;
         let level = 0;
         if (count > 0) {
@@ -148,9 +187,17 @@ function renderHeatmap(byDay) {
             else if (count >= maxCount * 0.25) level = 2;
             else level = 1;
         }
-        const cell = document.createElement("div");
+        const cell = document.createElement("button");
         cell.className = `heatmap-cell heat-${level}`;
         cell.title = count > 0 ? `${iso}: ${count} entr${count === 1 ? "y" : "ies"}` : iso;
+        cell.setAttribute("aria-label", cell.title);
+        // Clickable — navigate to feed filtered to that day
+        if (count > 0) {
+            cell.addEventListener("click", () => {
+                window.location.hash = `#/?dateFrom=${iso}&dateTo=${iso}`;
+            });
+            cell.style.cursor = "pointer";
+        }
         grid.appendChild(cell);
         current.setDate(current.getDate() + 1);
     }

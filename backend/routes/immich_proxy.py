@@ -25,6 +25,10 @@ Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
 # Lock to prevent concurrent cache cleanup runs
 _cache_cleanup_lock = asyncio.Lock()
 
+# In-flight request coalescing: maps (asset_id, variant) → asyncio.Task
+_inflight: dict[str, asyncio.Task] = {}
+_inflight_lock = asyncio.Lock()
+
 # In-memory size tracking: {path_str: size_bytes}. Updated on every write/eviction
 # so get_cache_size_mb() is O(1) without needing a directory scan.
 _cache_file_sizes: dict[str, int] = {}
@@ -129,36 +133,65 @@ async def get_cached_image(asset_id: str, variant: str, fetcher) -> tuple[bytes,
     Return image bytes + content-type for an asset variant, using a disk cache.
     `fetcher` is a coroutine that fetches (bytes, content_type) from Immich when needed.
     The real content-type is stored in a sidecar file so cache hits return the correct type.
+    Concurrent requests for the same asset coalesce into a single fetch.
     """
     cache_path = get_cache_path(asset_id, variant)
     ct_path = _content_type_path(cache_path)
 
-    # Serve from cache if fresh
-    if cache_path.exists():
-        cache_age = time.time() - cache_path.stat().st_mtime
-        if cache_age < CACHE_TTL_SECONDS:
-            logger.debug(f"Cache hit for {asset_id}/{variant} (age {cache_age:.0f}s)")
-            try:
+    # Serve from cache if fresh (disk I/O offloaded to thread)
+    def _try_cache():
+        if cache_path.exists():
+            cache_age = time.time() - cache_path.stat().st_mtime
+            if cache_age < CACHE_TTL_SECONDS:
                 content_type = ct_path.read_text().strip() if ct_path.exists() else _fallback_content_type(variant)
-                return cache_path.read_bytes(), content_type
-            except Exception as e:
-                logger.warning(f"Cache read failed for {asset_id}/{variant}: {e}")
-
-    # Fetch from Immich
-    try:
-        image_bytes, content_type = await fetcher()
-    except (httpx.ConnectError, httpx.HTTPStatusError) as e:
-        _raise_immich_error(e)
+                return cache_path.read_bytes(), content_type, True
+        return None, None, False
 
     try:
-        cache_path.write_bytes(image_bytes)
-        ct_path.write_text(content_type)
-        _track_cache_write(cache_path, len(image_bytes))
-        _track_cache_write(ct_path, len(content_type.encode()))
+        cached_bytes, cached_ct, hit = await asyncio.to_thread(_try_cache)
     except Exception as e:
-        logger.warning(f"Failed to write cache for {asset_id}/{variant}: {e}")
+        logger.warning(f"Cache read failed for {asset_id}/{variant}: {e}")
+        hit = False
 
-    return image_bytes, content_type
+    if hit:
+        logger.debug(f"Cache hit for {asset_id}/{variant}")
+        return cached_bytes, cached_ct
+
+    # Coalesce concurrent requests for the same asset/variant
+    inflight_key = f"{asset_id}:{variant}"
+
+    async def _fetch_and_cache():
+        try:
+            image_bytes, content_type = await fetcher()
+        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+            _raise_immich_error(e)
+
+        # Write to cache in a thread to avoid blocking the event loop
+        def _write_cache():
+            try:
+                cache_path.write_bytes(image_bytes)
+                ct_path.write_text(content_type)
+                _track_cache_write(cache_path, len(image_bytes))
+                _track_cache_write(ct_path, len(content_type.encode()))
+            except Exception as e:
+                logger.warning(f"Failed to write cache for {asset_id}/{variant}: {e}")
+
+        asyncio.create_task(asyncio.to_thread(_write_cache))
+        return image_bytes, content_type
+
+    async with _inflight_lock:
+        existing = _inflight.get(inflight_key)
+        if existing and not existing.done():
+            return await existing
+        task = asyncio.create_task(_fetch_and_cache())
+        _inflight[inflight_key] = task
+
+    try:
+        return await task
+    finally:
+        async with _inflight_lock:
+            if _inflight.get(inflight_key) is task:
+                _inflight.pop(inflight_key, None)
 
 
 def _fallback_content_type(variant: str) -> str:

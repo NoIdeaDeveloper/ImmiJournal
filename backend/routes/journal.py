@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -86,6 +87,7 @@ async def _build_entry_response(db, entry_row) -> EntryResponse:
     asset_rows = await cursor.fetchall()
     return EntryResponse(
         id=entry_row["id"],
+        entry_uid=entry_row["entry_uid"],
         immich_asset_ids=[r["immich_asset_id"] for r in asset_rows],
         title=entry_row["title"],
         summary=entry_row["summary"],
@@ -113,6 +115,7 @@ async def _build_entries_response(db, entry_rows) -> list[EntryResponse]:
     return [
         EntryResponse(
             id=r["id"],
+            entry_uid=r["entry_uid"],
             immich_asset_ids=assets_by_entry.get(r["id"], []),
             title=r["title"],
             summary=r["summary"],
@@ -268,12 +271,13 @@ async def create_entry(data: EntryCreate):
 
     now = datetime.now(timezone.utc).isoformat()
     created_at = data.created_at if data.created_at else now
+    entry_uid = str(uuid.uuid4())
     db = get_db()
     async with get_write_lock():
         try:
             cursor = await db.execute(
-                "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (data.title, data.summary, data.body, data.tags, created_at, now),
+                "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at, entry_uid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (data.title, data.summary, data.body, data.tags, created_at, now, entry_uid),
             )
             entry_id = cursor.lastrowid
 
@@ -615,11 +619,16 @@ async def search_entries(
             return await list_entries(page=page, page_size=page_size, date_from=date_from, date_to=date_to, tag=tag)
 
         # Build tokenized FTS5 query: split on whitespace, AND each term
+        # Append * to the last token for prefix matching (e.g. "vaca" → "vaca"*)
         tokens = q.strip().split()
         fts_terms = []
-        for tok in tokens:
+        for i, tok in enumerate(tokens):
             escaped = tok.replace('"', '""')
-            fts_terms.append(f'"{escaped}"')
+            if i == len(tokens) - 1 and len(tok) >= 2:
+                # Prefix match on the last token for search-as-you-type
+                fts_terms.append(f'"{escaped}"*')
+            else:
+                fts_terms.append(f'"{escaped}"')
         fts_query = " AND ".join(fts_terms)
 
         offset = (page - 1) * page_size
@@ -717,6 +726,7 @@ async def export_journal():
                 entries = await _build_entries_response(db, rows)
                 for e in entries:
                     chunk = json.dumps({
+                        "entry_uid": e.entry_uid,
                         "title": e.title,
                         "summary": e.summary,
                         "body": e.body,
@@ -779,12 +789,13 @@ async def trigger_backup():
 
 
 _IMPORT_BATCH_SIZE = 50
-_IMPORT_MAX_ENTRIES = 1000
+_IMPORT_MAX_ENTRIES = 10000
 
 
 @router.post("/import", dependencies=[Depends(require_auth)])
 async def import_journal(data: dict):
-    """Import journal entries from an exported JSON file."""
+    """Import journal entries from an exported JSON file.
+    Supports idempotent import: entries with an existing entry_uid are skipped."""
     if data.get("version") != "1":
         raise HTTPException(status_code=400, detail="Unsupported export version")
 
@@ -799,6 +810,7 @@ async def import_journal(data: dict):
         )
 
     imported = 0
+    skipped = 0
     errors = []
     db = get_db()
     async with get_write_lock():
@@ -808,6 +820,17 @@ async def import_journal(data: dict):
             try:
                 for i, entry in enumerate(batch, start=batch_start):
                     try:
+                        entry_uid = entry.get("entry_uid")
+
+                        # Idempotent: skip if uid already exists
+                        if entry_uid:
+                            cursor = await db.execute(
+                                "SELECT id FROM journal_entries WHERE entry_uid = ?", (entry_uid,)
+                            )
+                            if await cursor.fetchone():
+                                skipped += 1
+                                continue
+
                         title = entry.get("title", "")
                         summary = entry.get("summary", "")
                         body = entry.get("body", "")
@@ -831,9 +854,10 @@ async def import_journal(data: dict):
                             errors.append(f"Entry {i}: missing body")
                             continue
 
+                        uid = entry_uid or str(uuid.uuid4())
                         cursor = await db.execute(
-                            "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                            (title, summary, body, tags, created_at, updated_at),
+                            "INSERT INTO journal_entries (title, summary, body, tags, created_at, updated_at, entry_uid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (title, summary, body, tags, created_at, updated_at, uid),
                         )
                         entry_id = cursor.lastrowid
 
@@ -854,4 +878,4 @@ async def import_journal(data: dict):
                 await db.rollback()
                 errors.append(f"Batch starting at entry {batch_start} failed to commit: {str(e)}")
 
-    return {"imported": imported, "errors": errors}
+    return {"imported": imported, "skipped": skipped, "errors": errors}

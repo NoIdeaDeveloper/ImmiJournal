@@ -390,6 +390,9 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
     };
     container.addEventListener("keydown", _ctrlEnterHandler);
 
+    // Track the original date so we only send created_at if the user changed it
+    const _originalDate = todayISO;
+
     // Track whether any field has been modified so we can warn before discarding
     let _dirty = false;
     const markDirty = () => { _dirty = true; };
@@ -411,6 +414,7 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
 
         if (addImagesBtn) {
             addImagesBtn.addEventListener("click", () => {
+                if (_dirty && !window.confirm("Discard unsaved changes before adding images?")) return;
                 sessionStorage.setItem('addImagesToEntry', existingEntry.id);
                 closeModal();
                 window.location.hash = `#/browse?entry=${existingEntry.id}&mode=add`;
@@ -459,8 +463,13 @@ export function showEntryModal(assetIds = [], existingEntry = null, photoCreated
             const payload = {
                 title, tags, summary, body,
                 immich_asset_ids: assetIds,
-                created_at: dateInput ? dateInputToISO(dateInput) : undefined,
             };
+            // Only include created_at if the user changed the date input
+            if (dateInput && dateInput !== _originalDate) {
+                payload.created_at = dateInputToISO(dateInput);
+            } else if (!isEdit) {
+                payload.created_at = dateInput ? dateInputToISO(dateInput) : undefined;
+            }
             const entry = isEdit
                 ? await updateEntry(existingEntry.id, payload)
                 : await createEntry(payload);

@@ -55,8 +55,8 @@ export async function searchEntries(q, page = 1, pageSize = 20, { dateFrom, date
     return res.json();
 }
 
-export async function fetchTags() {
-    const res = await apiFetch(`${API_BASE}/journal/tags`);
+export async function fetchTags(pageSize = 500) {
+    const res = await apiFetch(`${API_BASE}/journal/tags?page_size=${pageSize}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

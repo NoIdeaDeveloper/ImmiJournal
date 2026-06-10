@@ -12,14 +12,16 @@ export function renderBarChart(canvasId, data, options) {
 
 // Function to render monthly statistics chart
 export function renderMonthlyChart(canvasId, monthlyData) {
-    const labels = monthlyData.map(item => {
+    // Data comes from API in DESC order; reverse so time flows left→right
+    const sorted = [...monthlyData].reverse();
+    const labels = sorted.map(item => {
         const [year, month] = item.month.split("-");
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         return `${monthNames[parseInt(month)-1]} ${year}`;
     });
 
-    const counts = monthlyData.map(item => item.count);
+    const counts = sorted.map(item => item.count);
 
     // Read theme colors from CSS variables so the chart adapts to light/dark mode
     const style = getComputedStyle(document.documentElement);

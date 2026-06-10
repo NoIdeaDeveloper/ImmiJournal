@@ -69,13 +69,13 @@ export async function renderSettings(container) {
                         <input type="file" id="import-file" accept=".json" style="display: none;">
                     </label>
                 </div>
-                <p class="settings-about settings-about--warning">Re-importing the same file will create duplicate entries.</p>
+                <p class="settings-about settings-about--warning">Re-importing the same file is safe — duplicate entries are automatically skipped.</p>
                 <div id="import-status" style="margin-top: 8px; font-size: 0.85rem;"></div>
             </div>
             <div class="settings-section">
                 <h2 class="settings-section-title">About</h2>
                 <p class="settings-about">ImmiJournal - A journaling app for your photos and memories.</p>
-                <p class="settings-version" id="app-version">Version 1.1.0</p>
+                <p class="settings-version" id="app-version">Version 1.2.0</p>
             </div>
             <div class="settings-section">
                 <div class="setting-item">
@@ -200,7 +200,7 @@ export async function renderSettings(container) {
         statusEl.textContent = `Selected: ${file.name}`;
         statusEl.style.color = "var(--text-muted)";
 
-        if (!window.confirm(`Import "${file.name}"? This will add all entries from the file. Re-importing the same file creates duplicates.`)) {
+        if (!window.confirm(`Import "${file.name}"? Entries with matching UIDs will be skipped.`)) {
             e.target.value = "";
             statusEl.textContent = "";
             return;
@@ -213,7 +213,8 @@ export async function renderSettings(container) {
             const text = await file.text();
             const data = JSON.parse(text);
             const result = await importJournal(data);
-            statusEl.textContent = `Imported ${result.imported} entries successfully.`;
+            const skipMsg = result.skipped > 0 ? ` (${result.skipped} skipped as duplicates)` : "";
+            statusEl.textContent = `Imported ${result.imported} entries successfully.${skipMsg}`;
             statusEl.style.color = "";
             showToast(`Imported ${result.imported} entries`);
         } catch (err) {

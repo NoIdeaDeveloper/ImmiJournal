@@ -118,7 +118,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Reject oversized request bodies (10 MB limit)
-    max_body_size = 10 * 1024 * 1024  # 10 MB
+    max_body_size = 50 * 1024 * 1024  # 50 MB
     content_length = request.headers.get("content-length")
     if content_length and int(content_length) > max_body_size:
         return JSONResponse(
@@ -180,7 +180,7 @@ _HEALTH_CACHE_TTL = 60
 
 @app.get("/api/health")
 async def health_check(full: bool = False, request: Request = None):
-    logger.info("Health check endpoint called")
+    logger.debug("Health check endpoint called")
 
     now = time.time()
     cached = _health_cache.get("data")

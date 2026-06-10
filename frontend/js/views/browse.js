@@ -1,4 +1,4 @@
-import { fetchAssets, checkAssetsWithEntries, addAssetsToEntry, fetchEntry, fetchEntriesForAsset, getAllLinkedAssetIds, fetchAlbums, fetchAlbumDetail } from "../api.js";
+import { fetchAssets, checkAssetsWithEntries, addAssetsToEntry, fetchEntry, fetchEntriesForAsset, getAllLinkedAssetIds, fetchAlbums, fetchAlbumDetail, thumbnailUrl } from "../api.js";
 import { renderPhotoGrid } from "../components/photoGrid.js";
 import { showEntryModal, showEntryPickerModal } from "../components/modal.js";
 import { escapeHtml, showToast } from "../utils.js";
@@ -119,6 +119,43 @@ export async function renderBrowse(container) {
     let hasMore = true;
     let currentQuery = null;
     let isAlbumView = false;
+    let currentAlbumId = null;
+    let currentAlbumName = null;
+
+    // Restore state from URL hash
+    const hashPage = parseInt(urlParams.get('page'), 10);
+    const hashQ = urlParams.get('q');
+    const hashAlbum = urlParams.get('album');
+    const hashAlbumName = urlParams.get('albumName');
+    if (hashPage > 1) currentPage = hashPage;
+    if (hashQ) {
+        currentQuery = hashQ;
+        searchInput.value = hashQ;
+    }
+    if (hashAlbum && !isAddMode) {
+        isAlbumView = true;
+        currentAlbumId = hashAlbum;
+        currentAlbumName = hashAlbumName || "";
+        viewToggleBtn.textContent = "📷 Photos";
+        searchInput.style.display = "none";
+        document.querySelector(".browse-title").textContent = "Albums";
+        pageIndicator.textContent = "";
+    }
+
+    function updateBrowseHash() {
+        if (isAddMode) return; // Don't mess with add-mode URLs
+        const params = new URLSearchParams();
+        if (isAlbumView && currentAlbumId) {
+            params.set("album", currentAlbumId);
+            if (currentAlbumName) params.set("albumName", currentAlbumName);
+        } else {
+            if (currentPage > 1) params.set("page", currentPage);
+            if (currentQuery) params.set("q", currentQuery);
+        }
+        const qs = params.toString();
+        const newHash = `#/browse${qs ? "?" + qs : ""}`;
+        window.history.replaceState(null, "", newHash);
+    }
 
     const returnToEntry = () => { window.location.hash = `#/entry/${entryIdForAdding}`; };
 
@@ -216,6 +253,7 @@ export async function renderBrowse(container) {
             prevBtn.disabled = currentPage <= 1;
             nextBtn.disabled = !hasMore;
             pageIndicator.textContent = `Page ${currentPage}`;
+            updateBrowseHash();
 
             gridEl.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {
@@ -342,6 +380,7 @@ export async function renderBrowse(container) {
             if (newQuery === currentQuery) return;
             currentQuery = newQuery;
             currentPage = 1;
+            updateBrowseHash();
             loadPage(1);
         }, 400);
     });
@@ -350,10 +389,13 @@ export async function renderBrowse(container) {
     viewToggleBtn.addEventListener("click", () => {
         if (isAlbumView) {
             isAlbumView = false;
+            currentAlbumId = null;
+            currentAlbumName = null;
             viewToggleBtn.textContent = "📁 Albums";
             searchInput.style.display = "";
             document.querySelector(".browse-title").textContent = "Your Photos";
             pageIndicator.textContent = "Page 1";
+            updateBrowseHash();
             loadPage(1);
         } else {
             isAlbumView = true;
@@ -371,6 +413,9 @@ export async function renderBrowse(container) {
         prevBtn.disabled = true;
         nextBtn.disabled = true;
         gridEl.innerHTML = skeletonGrid(12);
+        currentAlbumId = null;
+        currentAlbumName = null;
+        updateBrowseHash();
 
         try {
             const data = await fetchAlbums(1, 100);
@@ -420,7 +465,10 @@ export async function renderBrowse(container) {
     async function loadAlbumAssets(albumId, albumName) {
         if (isLoading) return;
         isLoading = true;
+        currentAlbumId = albumId;
+        currentAlbumName = albumName || "";
         gridEl.innerHTML = skeletonGrid(12);
+        updateBrowseHash();
 
         try {
             const album = await fetchAlbumDetail(albumId);
@@ -466,7 +514,12 @@ export async function renderBrowse(container) {
         }
     }
 
-    await loadPage(1);
+    // Restore state from hash or load default
+    if (currentAlbumId && !isAddMode) {
+        loadAlbumAssets(currentAlbumId, currentAlbumName);
+    } else {
+        await loadPage(currentPage);
+    }
 }
 
 

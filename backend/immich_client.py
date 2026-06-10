@@ -38,18 +38,23 @@ async def get_assets(page: int = 1, page_size: int | None = None, query: str | N
     logger.debug(f"Fetching assets from Immich - page: {page}, page_size: {page_size}, query: {query}")
     client = _get_client()
     try:
-        payload = {
-            "page": page,
-            "size": page_size,
-            "type": "IMAGE",
-            "order": "desc",
-        }
         if query:
-            payload["query"] = query
-        response = await client.post(
-            "/search/metadata",
-            json=payload,
-        )
+            # Free-text queries use Immich's smart/CLIP search endpoint
+            payload = {
+                "query": query,
+                "page": page,
+                "size": page_size,
+                "type": "IMAGE",
+            }
+            response = await client.post("/search/smart", json=payload)
+        else:
+            payload = {
+                "page": page,
+                "size": page_size,
+                "type": "IMAGE",
+                "order": "desc",
+            }
+            response = await client.post("/search/metadata", json=payload)
         response.raise_for_status()
         logger.debug(f"Successfully fetched {len(response.json().get('assets', {}).get('items', []))} assets")
         return response.json()
@@ -93,6 +98,19 @@ async def get_asset_original(asset_id: str) -> tuple[bytes, str]:
     response.raise_for_status()
     content_type = response.headers.get("content-type", "image/jpeg")
     return response.content, content_type
+
+
+async def stream_asset_original(asset_id: str):
+    """Yield (chunk, content_type) tuples for streaming an original asset.
+    The first yield contains only the content-type; subsequent yields are byte chunks."""
+    client = _get_client()
+    async with client.stream("GET", f"/assets/{asset_id}/original") as response:
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "image/jpeg")
+        yield b"", content_type
+        async for chunk in response.aiter_bytes(chunk_size=65536):
+            if chunk:
+                yield chunk, content_type
 
 
 async def get_albums(page: int = 1, page_size: int | None = None) -> dict:

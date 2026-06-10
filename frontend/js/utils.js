@@ -81,11 +81,17 @@ export function wordStats(text) {
 }
 
 export function formatDate(isoString) {
-    return new Date(isoString).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-    });
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    // If the string is a date-only value (YYYY-MM-DD) or UTC midnight,
+    // render in UTC so the displayed date matches what was stored.
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(isoString);
+    const isUTCMidnight = isoString.endsWith("T00:00:00.000Z") || isoString.endsWith("T00:00:00Z");
+    const opts = { year: "numeric", month: "long", day: "numeric" };
+    if (isDateOnly || isUTCMidnight) {
+        opts.timeZone = "UTC";
+    }
+    return d.toLocaleDateString("en-US", opts);
 }
 
 /**

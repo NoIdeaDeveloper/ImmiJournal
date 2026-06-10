@@ -52,6 +52,24 @@ export async function renderFeed(container) {
     let currentDateTo = "";
     let currentTag = initialTag;
 
+    // Restore filters from URL hash
+    const hashQ = urlParams.get("q");
+    const hashDateFrom = urlParams.get("dateFrom");
+    const hashDateTo = urlParams.get("dateTo");
+    if (hashQ) { currentQuery = hashQ; searchInput.value = hashQ; }
+    if (hashDateFrom) { currentDateFrom = hashDateFrom; }
+    if (hashDateTo) { currentDateTo = hashDateTo; }
+
+    function updateFeedHash() {
+        const params = new URLSearchParams();
+        if (currentQuery.trim()) params.set("q", currentQuery.trim());
+        if (currentDateFrom) params.set("dateFrom", currentDateFrom);
+        if (currentDateTo) params.set("dateTo", currentDateTo);
+        if (currentTag) params.set("tag", currentTag);
+        const qs = params.toString();
+        window.history.replaceState(null, "", `#/${qs ? "?" + qs : ""}`);
+    }
+
     const entriesEl = document.getElementById("feed-entries");
     const loadMoreEl = document.getElementById("feed-load-more");
     const searchInput = document.getElementById("feed-search");
@@ -61,6 +79,10 @@ export async function renderFeed(container) {
     const streakPill = document.getElementById("streak-pill");
     const onThisDayBanner = document.getElementById("on-this-day-banner");
     const surpriseBtn = document.getElementById("surprise-btn");
+
+    // Set initial date input values from hash
+    if (currentDateFrom) dateFromInput.value = currentDateFrom;
+    if (currentDateTo) dateToInput.value = currentDateTo;
 
     function updateClearButton() {
         const filters = [currentQuery.trim(), currentDateFrom, currentDateTo, currentTag].filter(Boolean);
@@ -265,6 +287,7 @@ export async function renderFeed(container) {
             const newQuery = searchInput.value;
             if (newQuery === currentQuery) return;
             currentQuery = newQuery;
+            updateFeedHash();
             renderFirstPage();
         }, 300);
     });
@@ -280,10 +303,12 @@ export async function renderFeed(container) {
     // Date filters — composable with search query and tag filter
     dateFromInput.addEventListener("change", () => {
         currentDateFrom = dateFromInput.value;
+        updateFeedHash();
         renderFirstPage();
     });
     dateToInput.addEventListener("change", () => {
         currentDateTo = dateToInput.value;
+        updateFeedHash();
         renderFirstPage();
     });
 
